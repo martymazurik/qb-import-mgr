@@ -127,29 +127,45 @@ public sealed class TxnRepository(DbSession s) : RepositoryBase(s)
     public long Insert(Txn t) => t.Id = Insert("""
         INSERT INTO Txn (BankAccountId, QboStatementId, FitId, TrnType, DtPosted, DtUser, AmountCents, Name, Memo, CheckNum,
                          SignedAmountCents, OvrDate, OvrPayee, OvrMemo, OvrCheckNum, CategoryId, QbNameId, Class, Status,
-                         DuplicateOfTxnId, RuleId, BatchId, UpdatedUtc)
+                         DuplicateOfTxnId, RuleId, BatchId, UpdatedUtc, QbRegisterTxnId, PairedTxnId)
         VALUES (@BankAccountId, @QboStatementId, @FitId, @TrnType, @DtPosted, @DtUser, @AmountCents, @Name, @Memo, @CheckNum,
                 @SignedAmountCents, @OvrDate, @OvrPayee, @OvrMemo, @OvrCheckNum, @CategoryId, @QbNameId, @Class, @Status,
-                @DuplicateOfTxnId, @RuleId, NULL, @UpdatedUtc)
+                @DuplicateOfTxnId, @RuleId, NULL, @UpdatedUtc, @QbRegisterTxnId, @PairedTxnId)
         """, new
     {
         t.BankAccountId, t.QboStatementId, t.FitId, t.TrnType, DtPosted = DbUtil.Date(t.DtPosted), DtUser = DbUtil.Date(t.DtUser),
         t.AmountCents, t.Name, t.Memo, t.CheckNum, t.SignedAmountCents, OvrDate = DbUtil.Date(t.OvrDate), t.OvrPayee, t.OvrMemo,
         t.OvrCheckNum, t.CategoryId, t.QbNameId, t.Class, Status = t.Status.ToString(), t.DuplicateOfTxnId, t.RuleId,
-        UpdatedUtc = DbUtil.Utc(t.UpdatedUtc),
+        UpdatedUtc = DbUtil.Utc(t.UpdatedUtc), t.QbRegisterTxnId, t.PairedTxnId,
     });
 
     /// <summary>Writes every user-editable column. Raw columns and BatchId are never written here.</summary>
     public void UpdateEditable(Txn t) => Exec("""
         UPDATE Txn SET SignedAmountCents = @SignedAmountCents, OvrDate = @OvrDate, OvrPayee = @OvrPayee, OvrMemo = @OvrMemo,
                OvrCheckNum = @OvrCheckNum, CategoryId = @CategoryId, QbNameId = @QbNameId, Class = @Class, Status = @Status,
-               DuplicateOfTxnId = @DuplicateOfTxnId, RuleId = @RuleId, UpdatedUtc = @UpdatedUtc
+               DuplicateOfTxnId = @DuplicateOfTxnId, RuleId = @RuleId, UpdatedUtc = @UpdatedUtc,
+               QbRegisterTxnId = @QbRegisterTxnId, PairedTxnId = @PairedTxnId
         WHERE Id = @Id
         """, new
     {
         t.Id, t.SignedAmountCents, OvrDate = DbUtil.Date(t.OvrDate), t.OvrPayee, t.OvrMemo, t.OvrCheckNum, t.CategoryId,
         t.QbNameId, t.Class, Status = t.Status.ToString(), t.DuplicateOfTxnId, t.RuleId, UpdatedUtc = DbUtil.Utc(t.UpdatedUtc),
+        t.QbRegisterTxnId, t.PairedTxnId,
     });
+
+    public Txn? GetByQbRegisterTxn(long qbRegisterTxnId) =>
+        Single<Txn>($"{Select} WHERE QbRegisterTxnId = @qbRegisterTxnId", new { qbRegisterTxnId });
+
+    /// <summary>Distinct raw bank payee names, for previewing what a learned pattern would hit.</summary>
+    public IReadOnlyList<string> AllNames() =>
+        Query<string>("SELECT DISTINCT Name FROM Txn WHERE Name IS NOT NULL AND Name <> ''").ToList();
+
+    /// <summary>Rows that are one side of a transfer pair.</summary>
+    public IReadOnlyList<Txn> ListPaired() =>
+        Query<Txn>($"{Select} WHERE PairedTxnId IS NOT NULL ORDER BY DtPosted, Id").ToList();
+
+    public IReadOnlyList<Txn> ListByAccounts(IEnumerable<long> accountIds) =>
+        Query<Txn>($"{Select} WHERE BankAccountId IN @ids ORDER BY DtPosted, Id", new { ids = accountIds.Distinct().ToArray() }).ToList();
 
     public int MarkExported(IReadOnlyCollection<long> ids, long batchId, DateTime now) => Exec(
         "UPDATE Txn SET Status = 'Exported', BatchId = @batchId, UpdatedUtc = @now WHERE Id IN @ids AND Status = 'Ready'",
@@ -231,7 +247,7 @@ public sealed class QbNameRepository(DbSession s) : RepositoryBase(s)
     private const string Select = """
         SELECT Id, Name,
                CASE NameType WHEN 'CUST' THEN 'Customer' WHEN 'VEND' THEN 'Vendor' WHEN 'OTHER' THEN 'OtherName' ELSE 'Employee' END AS NameType,
-               IsActive
+               IsActive, IsInvoiced
         FROM QbName
         """;
 
@@ -239,6 +255,14 @@ public sealed class QbNameRepository(DbSession s) : RepositoryBase(s)
         $"{Select} WHERE (@activeOnly = 0 OR IsActive = 1) ORDER BY Name", new { activeOnly = activeOnly ? 1 : 0 }).ToList();
 
     public QbName? Get(long id) => Single<QbName>($"{Select} WHERE Id = @id", new { id });
+
+    public QbName? FindByName(string name) =>
+        Query<QbName>($"{Select} WHERE Name = @name ORDER BY IsActive DESC, Id", new { name }).FirstOrDefault();
+
+    public void SetInvoiced(long id, bool invoiced) =>
+        Exec("UPDATE QbName SET IsInvoiced = @v WHERE Id = @id", new { id, v = invoiced ? 1 : 0 });
+
+    public IReadOnlySet<long> InvoicedIds() => Query<long>("SELECT Id FROM QbName WHERE IsInvoiced = 1").ToHashSet();
 
     public bool Upsert(string name, QbNameType type, bool isActive)
     {
@@ -265,15 +289,16 @@ public sealed class RuleRepository(DbSession s) : RepositoryBase(s)
 
     public long Insert(Rule r) => r.Id = Insert("""
         INSERT INTO Rule (Priority, Field, MatchKind, Pattern, Sign, MinCents, MaxCents, BankAccountId, CategoryId, QbNameId, Class,
-                          AutoExclude, HitCount, LastHitUtc, IsEnabled)
+                          AutoExclude, HitCount, LastHitUtc, IsEnabled, SplitTemplateId, Source)
         VALUES (@Priority, @Field, @MatchKind, @Pattern, @Sign, @MinCents, @MaxCents, @BankAccountId, @CategoryId, @QbNameId, @Class,
-                @AutoExclude, 0, NULL, @IsEnabled)
+                @AutoExclude, 0, NULL, @IsEnabled, @SplitTemplateId, @Source)
         """, Params(r));
 
     public void Update(Rule r) => Exec("""
         UPDATE Rule SET Priority = @Priority, Field = @Field, MatchKind = @MatchKind, Pattern = @Pattern, Sign = @Sign,
                MinCents = @MinCents, MaxCents = @MaxCents, BankAccountId = @BankAccountId, CategoryId = @CategoryId,
-               QbNameId = @QbNameId, Class = @Class, AutoExclude = @AutoExclude, IsEnabled = @IsEnabled
+               QbNameId = @QbNameId, Class = @Class, AutoExclude = @AutoExclude, IsEnabled = @IsEnabled,
+               SplitTemplateId = @SplitTemplateId, Source = @Source
         WHERE Id = @Id
         """, Params(r));
 
@@ -289,7 +314,7 @@ public sealed class RuleRepository(DbSession s) : RepositoryBase(s)
     {
         r.Id, r.Priority, Field = r.Field.ToString(), MatchKind = r.MatchKind.ToString(), r.Pattern, Sign = r.Sign.ToString(),
         r.MinCents, r.MaxCents, r.BankAccountId, r.CategoryId, r.QbNameId, r.Class,
-        AutoExclude = r.AutoExclude ? 1 : 0, IsEnabled = r.IsEnabled ? 1 : 0,
+        AutoExclude = r.AutoExclude ? 1 : 0, IsEnabled = r.IsEnabled ? 1 : 0, r.SplitTemplateId, r.Source,
     };
 }
 
@@ -298,8 +323,12 @@ public sealed class PayeeAliasRepository(DbSession s) : RepositoryBase(s)
     public IReadOnlyList<PayeeAlias> GetAll() => Query<PayeeAlias>("SELECT * FROM PayeeAlias ORDER BY Id").ToList();
 
     public long Insert(PayeeAlias a) => a.Id = Insert(
-        "INSERT INTO PayeeAlias (RawPattern, MatchKind, CleanPayee, QbNameId) VALUES (@RawPattern, @MatchKind, @CleanPayee, @QbNameId)",
-        new { a.RawPattern, MatchKind = a.MatchKind.ToString(), a.CleanPayee, a.QbNameId });
+        "INSERT INTO PayeeAlias (RawPattern, MatchKind, CleanPayee, QbNameId, Source) VALUES (@RawPattern, @MatchKind, @CleanPayee, @QbNameId, @Source)",
+        new { a.RawPattern, MatchKind = a.MatchKind.ToString(), a.CleanPayee, a.QbNameId, a.Source });
+
+    public void Update(PayeeAlias a) => Exec(
+        "UPDATE PayeeAlias SET RawPattern = @RawPattern, MatchKind = @MatchKind, CleanPayee = @CleanPayee, QbNameId = @QbNameId, Source = @Source WHERE Id = @Id",
+        new { a.Id, a.RawPattern, MatchKind = a.MatchKind.ToString(), a.CleanPayee, a.QbNameId, a.Source });
 
     public void Delete(long id) => Exec("DELETE FROM PayeeAlias WHERE Id = @id", new { id });
 }
@@ -330,6 +359,17 @@ public sealed class AuditRepository(DbSession s) : RepositoryBase(s)
 
     public IReadOnlyList<AuditLogEntry> For(string entity, long entityId) => Query<AuditLogEntry>(
         "SELECT * FROM AuditLog WHERE Entity = @entity AND EntityId = @entityId ORDER BY Id", new { entity, entityId }).ToList();
+
+    /// <summary>Newest first. Dates are inclusive calendar days (UTC); null filters are ignored.</summary>
+    public IReadOnlyList<AuditLogEntry> Search(DateOnly? from, DateOnly? to, string? entity, string? action, int limit = 5000) => Query<AuditLogEntry>("""
+        SELECT * FROM AuditLog
+        WHERE (@from IS NULL OR Utc >= @from) AND (@to IS NULL OR Utc < @to)
+          AND (@entity IS NULL OR Entity = @entity) AND (@action IS NULL OR Action = @action)
+        ORDER BY Id DESC LIMIT @limit
+        """, new { from = DbUtil.Date(from), to = DbUtil.Date(to?.AddDays(1)), entity, action, limit }).ToList();
+
+    public IReadOnlyList<string> Entities() => Query<string>("SELECT DISTINCT Entity FROM AuditLog ORDER BY Entity").ToList();
+    public IReadOnlyList<string> Actions() => Query<string>("SELECT DISTINCT Action FROM AuditLog ORDER BY Action").ToList();
 }
 
 public sealed class SettingRepository(DbSession s) : RepositoryBase(s)

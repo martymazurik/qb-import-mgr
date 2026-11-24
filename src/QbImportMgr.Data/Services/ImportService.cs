@@ -27,7 +27,11 @@ public sealed record FileImportResult(
     IReadOnlyList<StatementImportSummary> Statements,
     IReadOnlyList<string> Warnings,
     string? Error,
-    string? ArchivedTo);
+    string? ArchivedTo)
+{
+    /// <summary>QB register matching, transfer pairing and holds run after the rows went in.</summary>
+    public ReconcileSummary? Reconcile { get; init; }
+}
 
 public sealed class ImportService(Database db, AppPaths paths, TimeProvider clock)
 {
@@ -69,30 +73,29 @@ public sealed class ImportService(Database db, AppPaths paths, TimeProvider cloc
             return new(fileName, FileImportStatus.Failed, [], doc.Warnings, "No bank or credit card statements in file.", null);
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var summaries = s.InTransaction(() =>
+        var (summaries, reconcile) = s.InTransaction(() =>
         {
             var file = new QboFile { FileName = fileName, Sha256 = sha, RawBytes = bytes, ImportedUtc = now };
             s.Files.Insert(file);
 
-            var engine = new RuleEngine(s.Rules.GetAll());
-            var aliases = s.Aliases.GetAll();
-            var hits = new Dictionary<long, int>();
-            var result = doc.Statements.Select(st => ImportStatement(s, file.Id, doc, st, engine, aliases, hits, now)).ToList();
+            var runner = new RuleRunner(s, now);
+            var result = doc.Statements.Select(st => ImportStatement(s, file.Id, doc, st, runner, now)).ToList();
+            runner.Flush();
 
-            s.Rules.AddHits(hits, now);
+            var rec = Reconciler.Run(s, result.Select(r => r.BankAccountId), now);
             s.Audit.Write("QboFile", file.Id, "Imported", new
             {
                 fileName, doc.EncodingName, Format = doc.Format.ToString(),
                 Statements = result.Select(r => new { r.AccountDisplay, r.Inserted, r.SkippedExisting, r.FlaggedDuplicates }),
+                Reconcile = rec,
             }, now);
-            return result;
+            return (result, rec);
         });
 
-        return new(fileName, FileImportStatus.Imported, summaries, doc.Warnings, null, Archive(path));
+        return new(fileName, FileImportStatus.Imported, summaries, doc.Warnings, null, Archive(path)) { Reconcile = reconcile };
     }
 
-    private static StatementImportSummary ImportStatement(DbSession s, long fileId, OfxDocument doc, OfxStatement st, RuleEngine engine,
-        IReadOnlyList<PayeeAlias> aliases, Dictionary<long, int> hits, DateTime now)
+    private static StatementImportSummary ImportStatement(DbSession s, long fileId, OfxDocument doc, OfxStatement st, RuleRunner runner, DateTime now)
     {
         var hash = AccountIdentity.Hash(st.Kind, st.BankId, st.AcctId);
         var account = s.Accounts.GetByHash(hash);
@@ -148,15 +151,13 @@ public sealed class ImportService(Database db, AppPaths paths, TimeProvider cloc
                     Status = dup.Kind == DupKind.Possible ? TxnStatus.Duplicate : TxnStatus.New,
                     DuplicateOfTxnId = dup.Kind == DupKind.Possible ? dup.MatchTxnId : null,
                 };
-                ApplyAlias(txn, aliases);
-                if (engine.Apply(txn) is { } outcome)
-                {
-                    hits[outcome.Rule.Id] = hits.GetValueOrDefault(outcome.Rule.Id) + 1;
-                    if (outcome.NewStatus == TxnStatus.Categorized) categorized++;
-                    if (outcome.NewStatus == TxnStatus.Excluded) excluded++;
-                }
-
+                runner.ApplyAlias(txn);
+                var outcome = runner.Apply(txn);
                 s.Txns.Insert(txn);
+                runner.AfterSave(txn, outcome);
+                if (outcome is not null && txn.Status == TxnStatus.Categorized) categorized++;
+                if (outcome is not null && txn.Status == TxnStatus.Excluded) excluded++;
+
                 inserted++;
                 if (txn.Status == TxnStatus.Duplicate) flagged++;
                 existing.Add(candidate with { TxnId = txn.Id, Status = txn.Status });

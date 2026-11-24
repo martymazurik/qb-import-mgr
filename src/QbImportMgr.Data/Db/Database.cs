@@ -56,6 +56,9 @@ public sealed class DbSession(SqliteConnection connection) : IDisposable
     public ExportBatchRepository Batches => new(this);
     public AuditRepository Audit => new(this);
     public SettingRepository Settings => new(this);
+    public QbRegisterRepository QbRegister => new(this);
+    public RejectionRepository Rejections => new(this);
+    public SplitTemplateRepository Templates => new(this);
 
     /// <summary>Runs work in a transaction; nested calls join the outer one.</summary>
     public T InTransaction<T>(Func<T> work)
@@ -91,17 +94,35 @@ public sealed class DbSession(SqliteConnection connection) : IDisposable
 
 internal static class Migrator
 {
-    private static readonly string[] Scripts = ["Schema_001.sql", "Schema_002.sql"];
+    private static readonly string[] Scripts = ["Schema_001.sql", "Schema_002.sql", "Schema_003.sql"];
 
+    /// <summary>
+    /// Runs pending scripts, each in its own transaction. Foreign keys are switched off for the
+    /// duration (a table rebuild would otherwise cascade-delete child rows) and every script must
+    /// leave PRAGMA foreign_key_check clean before it commits.
+    /// </summary>
     public static int Migrate(SqliteConnection c)
     {
         int version = c.ExecuteScalar<int>("PRAGMA user_version;");
-        for (int v = version; v < Scripts.Length; v++)
+        if (version >= Scripts.Length) return version;
+
+        c.Execute("PRAGMA foreign_keys = OFF;");
+        try
         {
-            using var tx = c.BeginTransaction();
-            c.Execute(LoadScript(Scripts[v]), transaction: tx);
-            c.Execute($"PRAGMA user_version = {v + 1};", transaction: tx);
-            tx.Commit();
+            for (int v = version; v < Scripts.Length; v++)
+            {
+                using var tx = c.BeginTransaction();
+                c.Execute(LoadScript(Scripts[v]), transaction: tx);
+                var problems = c.Query("PRAGMA foreign_key_check;", transaction: tx).ToList();
+                if (problems.Count > 0)
+                    throw new InvalidOperationException($"Schema upgrade to v{v + 1} left {problems.Count} foreign key problem(s); nothing was changed.");
+                c.Execute($"PRAGMA user_version = {v + 1};", transaction: tx);
+                tx.Commit();
+            }
+        }
+        finally
+        {
+            c.Execute("PRAGMA foreign_keys = ON;");
         }
         return c.ExecuteScalar<int>("PRAGMA user_version;");
     }

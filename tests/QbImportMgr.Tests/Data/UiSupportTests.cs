@@ -169,7 +169,7 @@ public class UiSupportTests : DataTestBase
             cmd.CommandText = new StreamReader(stream).ReadToEnd() + ";PRAGMA user_version = 1;";
             cmd.ExecuteNonQuery();
         }
-        Assert.Equal(2, new QbImportMgr.Data.Db.Database(path).Migrate());
+        Assert.Equal(3, new QbImportMgr.Data.Db.Database(path).Migrate());
     }
 
     [Theory]

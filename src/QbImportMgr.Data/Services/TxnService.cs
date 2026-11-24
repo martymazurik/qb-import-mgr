@@ -13,7 +13,11 @@ public sealed class TxnStateException(string message) : InvalidOperationExceptio
 public sealed record TxnSnapshot(
     long TxnId, TxnStatus Status, long? CategoryId, long? QbNameId, string? Class,
     DateOnly? OvrDate, string? OvrPayee, string? OvrMemo, string? OvrCheckNum,
-    long? DuplicateOfTxnId, long? RuleId, IReadOnlyList<TxnSplit> Splits);
+    long? DuplicateOfTxnId, long? RuleId, IReadOnlyList<TxnSplit> Splits,
+    long? QbRegisterTxnId = null, long? PairedTxnId = null);
+
+/// <summary>A QB register row offered in the "Pick match" list.</summary>
+public sealed record QbMatchOption(QbRegisterTxn Row, bool CheckNumberMatch, int DayDiff, double NameSimilarity);
 
 public sealed record BulkResult(IReadOnlyList<Txn> Changed, IReadOnlyList<string> Skipped);
 
@@ -126,15 +130,107 @@ public sealed class TxnService(Database db, TimeProvider clock)
         return s.InTransaction(() =>
         {
             if (rule.Id == 0) s.Rules.Insert(rule); else s.Rules.Update(rule);
-            s.Audit.Write("Rule", rule.Id, "Saved", new { rule.Pattern, rule.MatchKind, rule.Field, rule.CategoryId, rule.Priority }, Now);
-            return new RuleSaveResult(rule, ApplyRulesToNew(s));
+            s.Audit.Write("Rule", rule.Id, "Saved", new { rule.Pattern, rule.MatchKind, rule.Field, rule.CategoryId, rule.SplitTemplateId, rule.Priority }, Now);
+            var before = RuleRunner.ApplyToAllNew(s, Now);
+            Reconciler.Run(s, [], Now); // a rule can assign an invoiced customer: holds
+            return new RuleSaveResult(rule, before);
         });
     }
 
     public int ApplyRulesToNew()
     {
         using var s = db.Open();
-        return s.InTransaction(() => ApplyRulesToNew(s)).Count;
+        return s.InTransaction(() => RuleRunner.ApplyToAllNew(s, Now)).Count;
+    }
+
+    // ------------------------------------------------------------------ QuickBooks register matches
+
+    /// <summary>Ranked QB register rows this transaction could be (unlinked rows only; rejected ones left out).</summary>
+    public IReadOnlyList<QbMatchOption> MatchOptions(long txnId)
+    {
+        using var s = db.Open();
+        var t = s.Txns.Get(txnId) ?? throw new KeyNotFoundException($"Transaction {txnId} not found.");
+        var rejected = s.Rejections.QbRejections(t.BankAccountId);
+        var available = s.QbRegister.Unlinked(t.BankAccountId).Where(q => !rejected.Contains((t.Id, q.Id))).ToDictionary(q => q.Id);
+        var bank = new Core.Qb.MatchBank(t.Id, t.BankAccountId, t.DtPosted, t.SignedAmountCents, t.EffectiveCheckNum, t.Name ?? t.EffectivePayee, t.Memo);
+        return Core.Qb.QbMatcher.Candidates(bank, available.Values.Select(Reconciler.ToMatchQb))
+            .Select(c => new QbMatchOption(available[c.Qb.Id], c.CheckNumberMatch, c.DayDiff, c.NameSimilarity))
+            .ToList();
+    }
+
+    /// <summary>"Pick match": link to the chosen QB register row; the transaction is InQb.</summary>
+    public Txn PickMatch(long txnId, long qbRegisterTxnId) => Single(txnId, "PickQbMatch", (s, t) =>
+    {
+        if (t.Status != TxnStatus.Ambiguous && t.QbRegisterTxnId is not null)
+            throw new TxnStateException($"Transaction {t.Id} is already matched.");
+        var q = s.QbRegister.Get(qbRegisterTxnId) ?? throw new KeyNotFoundException($"QB register row {qbRegisterTxnId} not found.");
+        if (q.BankAccountId != t.BankAccountId || q.AmountCents != t.SignedAmountCents)
+            throw new TxnStateException("That QB row is for a different account or amount.");
+        if (s.Txns.GetByQbRegisterTxn(q.Id) is { } other)
+            throw new TxnStateException($"That QB row is already matched to transaction {other.Id}.");
+        t.QbRegisterTxnId = q.Id;
+        t.Status = TxnStatus.InQb;
+        return new { QbRegisterTxnId = q.Id };
+    }, deriveStatus: false);
+
+    /// <summary>
+    /// "Not in QB": unlink (remembering the rejection so it is not re-matched), back to New, rules re-run.
+    /// For an Ambiguous row every current candidate is rejected.
+    /// </summary>
+    public Txn NotInQb(long txnId)
+    {
+        var rejectIds = MatchOptions(txnId).Select(o => o.Row.Id).ToList();
+        return Single(txnId, "NotInQb", (s, t) =>
+        {
+            if (t.Status is not (TxnStatus.InQb or TxnStatus.Ambiguous))
+                throw new TxnStateException($"Transaction {t.Id} is not matched to QuickBooks.");
+            var was = t.QbRegisterTxnId;
+            if (was is { } q) s.Rejections.RejectQb(t.Id, q, Now);
+            if (t.Status == TxnStatus.Ambiguous) foreach (var id in rejectIds) s.Rejections.RejectQb(t.Id, id, Now);
+            t.QbRegisterTxnId = null;
+            ResetToNewAndApplyRules(s, t);
+            return new { WasQbRegisterTxnId = was, Rejected = rejectIds.Count, t.Status };
+        }, deriveStatus: false);
+    }
+
+    // ------------------------------------------------------------------ transfers
+
+    /// <summary>Breaks a transfer pair (remembered, so it is not re-paired). Paired sides go back to New with rules re-run.</summary>
+    public IReadOnlyList<Txn> Unpair(long txnId)
+    {
+        using var s = db.Open();
+        return s.InTransaction(() =>
+        {
+            var a = s.Txns.Get(txnId) ?? throw new KeyNotFoundException($"Transaction {txnId} not found.");
+            if (a.PairedTxnId is not { } otherId) throw new TxnStateException($"Transaction {txnId} is not part of a transfer.");
+            var b = s.Txns.Get(otherId)!;
+            var (o, i) = a.SignedAmountCents < 0 ? (a, b) : (b, a);
+            s.Rejections.RejectTransfer(o.Id, i.Id, Now);
+            foreach (var t in new[] { o, i })
+            {
+                var from = t.Status;
+                t.PairedTxnId = null;
+                if (t.Status == TxnStatus.Paired) ResetToNewAndApplyRules(s, t);
+                t.UpdatedUtc = Now;
+                s.Txns.UpdateEditable(t);
+                s.Audit.Write("Txn", t.Id, "Unpair", new { From = from.ToString(), To = t.Status.ToString(), With = t == o ? i.Id : o.Id }, Now);
+            }
+            return (IReadOnlyList<Txn>)[o, i];
+        });
+    }
+
+    // ------------------------------------------------------------------ invoiced customers
+
+    /// <summary>Marks a QB name as invoiced (or not) and re-evaluates every open deposit's hold.</summary>
+    public ReconcileSummary SetInvoiced(long qbNameId, bool invoiced)
+    {
+        using var s = db.Open();
+        return s.InTransaction(() =>
+        {
+            s.Names.SetInvoiced(qbNameId, invoiced);
+            s.Audit.Write("QbName", qbNameId, invoiced ? "SetInvoiced" : "ClearInvoiced", null, Now);
+            return Reconciler.Run(s, [], Now);
+        });
     }
 
     public void DeleteRule(long ruleId)
@@ -145,25 +241,6 @@ public sealed class TxnService(Database db, TimeProvider clock)
             s.Rules.Delete(ruleId);
             s.Audit.Write("Rule", ruleId, "Deleted", null, Now);
         });
-    }
-
-    private List<TxnSnapshot> ApplyRulesToNew(DbSession s)
-    {
-        var engine = new RuleEngine(s.Rules.GetAll());
-        var hits = new Dictionary<long, int>();
-        var before = new List<TxnSnapshot>();
-        foreach (var t in s.Txns.ListByStatus(TxnStatus.New))
-        {
-            var snap = SnapshotOf(s, t);
-            if (engine.Apply(t) is not { } outcome) continue;
-            before.Add(snap);
-            t.UpdatedUtc = Now;
-            s.Txns.UpdateEditable(t);
-            s.Audit.Write("Txn", t.Id, "RuleApplied", new { RuleId = outcome.Rule.Id, Status = t.Status.ToString() }, Now);
-            hits[outcome.Rule.Id] = hits.GetValueOrDefault(outcome.Rule.Id) + 1;
-        }
-        s.Rules.AddHits(hits, Now);
-        return before;
     }
 
     // ------------------------------------------------------------------ undo
@@ -190,6 +267,7 @@ public sealed class TxnService(Database db, TimeProvider clock)
             t.Status = snap.Status; t.CategoryId = snap.CategoryId; t.QbNameId = snap.QbNameId; t.Class = snap.Class;
             t.OvrDate = snap.OvrDate; t.OvrPayee = snap.OvrPayee; t.OvrMemo = snap.OvrMemo; t.OvrCheckNum = snap.OvrCheckNum;
             t.DuplicateOfTxnId = snap.DuplicateOfTxnId; t.RuleId = snap.RuleId;
+            t.QbRegisterTxnId = snap.QbRegisterTxnId; t.PairedTxnId = snap.PairedTxnId;
             t.UpdatedUtc = Now;
             s.Txns.UpdateEditable(t);
             s.Audit.Write("Txn", t.Id, "Undo", new { From = from.ToString(), To = t.Status.ToString() }, Now);
@@ -197,16 +275,17 @@ public sealed class TxnService(Database db, TimeProvider clock)
         }).ToList());
     }
 
-    private static TxnSnapshot SnapshotOf(DbSession s, Txn t) => new(
+    internal static TxnSnapshot SnapshotOf(DbSession s, Txn t) => new(
         t.Id, t.Status, t.CategoryId, t.QbNameId, t.Class, t.OvrDate, t.OvrPayee, t.OvrMemo, t.OvrCheckNum,
-        t.DuplicateOfTxnId, t.RuleId, s.Splits.ForTxn(t.Id));
+        t.DuplicateOfTxnId, t.RuleId, s.Splits.ForTxn(t.Id), t.QbRegisterTxnId, t.PairedTxnId);
 
     // ------------------------------------------------------------------ helpers
 
     private static string? ReadyBlocker(DbSession s, Txn t)
     {
-        if (t.Status is TxnStatus.Excluded or TxnStatus.Duplicate)
-            return $"Transaction {t.Id} is {t.Status}; resolve it before marking it Ready.";
+        if (t.Status.IsNonExporting())
+            return $"Transaction {t.Id} is {t.Status}; it is never exported" +
+                   (t.Status is TxnStatus.Excluded or TxnStatus.Duplicate or TxnStatus.Ambiguous ? " until it is resolved." : ".");
         var splits = s.Splits.ForTxn(t.Id);
         if (t.CategoryId is null && splits.Count == 0) return $"Transaction {t.Id} is uncategorized.";
         if (splits.Count > 0 && !SplitMath.Balances(t.SignedAmountCents, splits.Select(x => x.AmountCents)))
@@ -214,14 +293,19 @@ public sealed class TxnService(Database db, TimeProvider clock)
         return null;
     }
 
+    /// <summary>Back to New with aliases and rules (split templates too) re-run; a category the user set earlier is kept; holds apply.</summary>
     private void ResetToNewAndApplyRules(DbSession s, Txn t)
     {
         t.Status = TxnStatus.New;
-        ImportService.ApplyAlias(t, s.Aliases.GetAll());
-        if (new RuleEngine(s.Rules.GetAll()).Apply(t) is { } outcome)
-            s.Rules.AddHits(new Dictionary<long, int> { [outcome.Rule.Id] = 1 }, Now);
-        else if (IsCategorized(s, t))
+        var runner = new RuleRunner(s, Now);
+        runner.ApplyAlias(t);
+        var outcome = runner.Apply(t);
+        runner.Flush();
+        if (outcome is null && IsCategorized(s, t))
             t.Status = TxnStatus.Categorized; // keep a category the user set before it was flagged
+        runner.AfterSave(t, outcome);
+        if (Holds.ShouldHold(t, s.Names.InvoicedIds()) && Holds.IsOpen(t.Status))
+            t.Status = TxnStatus.HoldReceivePayment;
     }
 
     private static bool IsCategorized(DbSession s, Txn t) => t.CategoryId is not null || s.Splits.ForTxn(t.Id).Count > 0;
@@ -245,6 +329,7 @@ public sealed class TxnService(Database db, TimeProvider clock)
         {
             var changed = new List<Txn>();
             var skipped = new List<string>();
+            var invoiced = s.Names.InvoicedIds();
             foreach (var id in txnIds.Distinct())
             {
                 var t = s.Txns.Get(id) ?? throw new KeyNotFoundException($"Transaction {id} not found.");
@@ -263,7 +348,7 @@ public sealed class TxnService(Database db, TimeProvider clock)
                     continue;
                 }
 
-                if (deriveStatus && t.Status is TxnStatus.New or TxnStatus.Categorized or TxnStatus.Ready)
+                if (deriveStatus && Holds.IsOpen(t.Status))
                 {
                     bool categorized = IsCategorized(s, t);
                     t.Status = t.Status switch
@@ -272,6 +357,7 @@ public sealed class TxnService(Database db, TimeProvider clock)
                         _ when categorized => TxnStatus.Categorized,
                         _ => TxnStatus.New,
                     };
+                    if (Holds.ShouldHold(t, invoiced)) t.Status = TxnStatus.HoldReceivePayment;
                 }
 
                 t.UpdatedUtc = Now;
