@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\QbImportMgr.Core\QbImportMgr.Core.csproj" />
+    <ProjectReference Include="..\..\src\QbImportMgr.Data\QbImportMgr.Data.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Samples\**" CopyToOutputDirectory="PreserveNewest" />
