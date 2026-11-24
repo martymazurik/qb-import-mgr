@@ -1,0 +1,13 @@
+,,,,,,,,,,,,
+Sample Company LLC,,,,,,,,,,,,
+Transaction Detail,,,,,,,,,,,,
+"October 1 - 31, 2026",,,,,,,,,,,,
+,,Type,Date,Num,Name,Memo,Account,Clr,Split,Debit,Credit,Balance
+,Checking,,,,,,,,,,,
+,,Check,10/05/2026,1042,Landlord LLC,October rent,Checking,X,Rent,,"1,250.00",-1250.00
+,,Deposit,10/15/2026,,Acme Corp,DIRECT DEP,Checking,,Sales Income,"2,500.00",,1250.00
+,,General Journal,10/20/2026,,,"Fee, monthly",1000 · Checking,,-SPLIT-,,5.00,1245.00
+,,Check,10/02/2026,DEBIT,AT&T,,Checking,,Utilities:Telephone,,54.23,1190.77
+,Total Checking,,,,,,,,,"2,500.00","1,309.23",1190.77
+,,,,,,,,,,,,
+TOTAL,,,,,,,,,,"2,500.00","1,309.23",1190.77

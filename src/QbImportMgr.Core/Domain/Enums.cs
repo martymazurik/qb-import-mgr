@@ -2,7 +2,25 @@ namespace QbImportMgr.Core.Domain;
 
 public enum AccountKind { Bank, CreditCard }
 
-public enum TxnStatus { New, Categorized, Ready, Exported, Excluded, Duplicate }
+public enum TxnStatus
+{
+    New, Categorized, Ready, Exported, Excluded, Duplicate,
+    /// <summary>Matched to a row in the QuickBooks register: already entered, never exported.</summary>
+    InQb,
+    /// <summary>More than one QuickBooks register row could be this transaction; pick one.</summary>
+    Ambiguous,
+    /// <summary>Deposit from an invoiced customer: record with Receive Payments in QB, then re-import the register.</summary>
+    HoldReceivePayment,
+    /// <summary>The "in" side of a transfer between mapped accounts; the "out" side carries the export.</summary>
+    Paired,
+}
+
+public static class TxnStatusExtensions
+{
+    /// <summary>Statuses that never reach an IIF export.</summary>
+    public static bool IsNonExporting(this TxnStatus s) =>
+        s is TxnStatus.Excluded or TxnStatus.Duplicate or TxnStatus.InQb or TxnStatus.Ambiguous or TxnStatus.HoldReceivePayment or TxnStatus.Paired;
+}
 
 public enum RuleField { Payee, Memo, Any }
 

@@ -21,8 +21,8 @@ public static class TextMatcher
         if (string.IsNullOrEmpty(pattern)) return false;
         switch (kind)
         {
-            case MatchKind.Contains: return text.Contains(pattern, StringComparison.OrdinalIgnoreCase);
-            case MatchKind.StartsWith: return text.StartsWith(pattern, StringComparison.OrdinalIgnoreCase);
+            case MatchKind.Contains: return Squash(text).Contains(Squash(pattern), StringComparison.OrdinalIgnoreCase);
+            case MatchKind.StartsWith: return Squash(text).StartsWith(Squash(pattern), StringComparison.OrdinalIgnoreCase);
             case MatchKind.Regex:
                 var rx = Cache.GetOrAdd(pattern, p => TryCreate(p, out var r) ? r : null);
                 if (rx is null) return false;
@@ -30,6 +30,13 @@ public static class TextMatcher
                 catch (RegexMatchTimeoutException) { return false; }
             default: return false;
         }
+    }
+
+    /// <summary>Trims and collapses runs of whitespace, so "SHELL  OIL" and "SHELL OIL" compare equal.</summary>
+    private static string Squash(string s)
+    {
+        if (s.IndexOf("  ", StringComparison.Ordinal) < 0 && !s.Contains('\t') && s.Trim().Length == s.Length) return s;
+        return string.Join(' ', s.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries));
     }
 
     /// <summary>Returns an error message for an unusable pattern, or null when it is valid.</summary>

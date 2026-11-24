@@ -1,0 +1,11 @@
+Transaction Detail
+"October 9 - November 8, 2026"
+,Type,Date,Num,Name,Memo,Clr,Split,Amount
+American Express
+,Credit Card Charge,10/12/2026,,Amazon,Office supplies,,Office Supplies,(84.17)
+,Credit Card Charge,10/14/26,,City of Denver,Parking,,Parking,-5.00
+,Credit Card Charge,10/20/2026,,Delta Air Lines,,,Travel,"-1,234.56"
+,Credit Card Credit,11/01/2026,,Amazon,Return,,Office Supplies,19.99
+,Credit Card Charge,10/30/2026,,Costco,"Supplies, snacks",,-SPLIT-,$212.40-
+Total American Express,,,,,,,,"(1,516.14)"
+TOTAL,,,,,,,,"(1,516.14)"

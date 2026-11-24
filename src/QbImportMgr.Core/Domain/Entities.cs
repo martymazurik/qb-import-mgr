@@ -72,6 +72,12 @@ public sealed class Txn
     public long? BatchId { get; set; }
     public DateTime UpdatedUtc { get; set; }
 
+    /// <summary>The QuickBooks register row this transaction was matched to.</summary>
+    public long? QbRegisterTxnId { get; set; }
+
+    /// <summary>The other side of a transfer between mapped accounts.</summary>
+    public long? PairedTxnId { get; set; }
+
     public DateOnly EffectiveDate => OvrDate ?? DtPosted;
     public string EffectivePayee => OvrPayee ?? Name ?? "";
     public string EffectiveMemo => OvrMemo ?? Memo ?? "";
@@ -108,6 +114,9 @@ public sealed class QbName
     public string Name { get; set; } = "";
     public QbNameType NameType { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Customer paid by invoice: deposits wait for Receive Payments in QB instead of exporting.</summary>
+    public bool IsInvoiced { get; set; }
 }
 
 public sealed class Rule
@@ -130,6 +139,34 @@ public sealed class Rule
     public int HitCount { get; set; }
     public DateTime? LastHitUtc { get; set; }
     public bool IsEnabled { get; set; } = true;
+    public long? SplitTemplateId { get; set; }
+    public string Source { get; set; } = RuleSources.Manual;
+    public bool IsLearned => Source == RuleSources.LearnedFromQb;
+}
+
+public static class RuleSources
+{
+    public const string Manual = "Manual";
+    public const string LearnedFromQb = "Learned from QB";
+}
+
+/// <summary>A row from a QuickBooks Transaction Detail export. AmountCents is signed for the register account.</summary>
+public sealed class QbRegisterTxn
+{
+    public long Id { get; set; }
+    public long? BankAccountId { get; set; }
+    public string? QbAccountName { get; set; }
+    public DateOnly TxnDate { get; set; }
+    public string TxnType { get; set; } = "";
+    public string? Num { get; set; }
+    public string? Name { get; set; }
+    public string? Memo { get; set; }
+    public string? Clr { get; set; }
+    public string? SplitAccount { get; set; }
+    public long AmountCents { get; set; }
+    public string SourceFile { get; set; } = "";
+    public DateTime ImportedUtc { get; set; }
+    public string RowKey { get; set; } = "";
 }
 
 public sealed class PayeeAlias
@@ -139,6 +176,7 @@ public sealed class PayeeAlias
     public MatchKind MatchKind { get; set; } = MatchKind.Contains;
     public string CleanPayee { get; set; } = "";
     public long? QbNameId { get; set; }
+    public string Source { get; set; } = RuleSources.Manual;
 }
 
 public sealed class ExportBatch
