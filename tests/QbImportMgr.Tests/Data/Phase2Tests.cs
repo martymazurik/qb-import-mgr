@@ -188,6 +188,72 @@ public class QbRegisterImportTests : Phase2TestBase
         Assert.Equal(6, Qb.RegisterRowCount());
     }
 
+    private static readonly (string, string, string, string?, string?, string?, string?, decimal)[] AmexRegister =
+    [
+        ("American Express", "10/12/2026", "Credit Card Charge", null, "Amazon", "Office supplies", "Office Supplies", -84.17m),
+        ("American Express", "10/16/2026", "Credit Card Charge", null, "Shell", null, "Auto:Fuel", -45.00m),
+        ("American Express", "10/22/2026", "Credit Card Charge", null, "Delta Air Lines", null, "Travel", -300.00m),
+    ];
+
+    private static readonly (string, string, string, string?, string?, string?, string?, decimal) Late =
+        ("Checking", "10/25/2026", "Check", null, "Someone", null, "Rent", -1m);
+
+    private int RegisterRows(string qbAccount)
+    {
+        using var s = Db.Open();
+        return s.Connection.ExecuteScalar<int>("SELECT COUNT(*) FROM QbRegisterTxn WHERE QbAccountName = @qbAccount", new { qbAccount });
+    }
+
+    [Fact]
+    public void Re_import_removal_is_scoped_to_accounts_in_the_new_file()
+    {
+        BankSetup();
+        // All-accounts history: Checking and American Express over the same October range.
+        Qb.ImportRegister(RegisterCsv([.. CheckingRegister, .. AmexRegister]), "history.csv");
+        Assert.Equal((4, 3), (RegisterRows("Checking"), RegisterRows("American Express")));
+
+        // Checking-only file for an overlapping range, without the (unmatched) journal entry.
+        // Ends 10/25, so the 10/20 journal entry is inside this file's Checking range.
+        var checkingOnly = CheckingRegister.Where(x => x.Item3 != "General Journal").Append(Late).ToArray();
+        var r = Qb.ImportRegister(RegisterCsv(checkingOnly), "checking-only.csv");
+
+        Assert.Equal(1, r.Removed);
+        Assert.Equal(["Checking"], r.Accounts.Select(a => a.QbAccount));
+        Assert.Equal((4, 3), (RegisterRows("Checking"), RegisterRows("American Express")));
+    }
+
+    [Fact]
+    public void Re_import_without_account_column_only_touches_the_assigned_account()
+    {
+        BankSetup();
+        Qb.ImportRegister(RegisterCsv([.. CheckingRegister, .. AmexRegister]), "history.csv");
+        var checking = Accounts.GetAll().Single(a => a.QbAccountName == "Checking");
+
+        // Amount layout, no Account column, assigned to Checking; same dates as the Amex rows.
+        var csv = Encoding.UTF8.GetBytes(
+            ",Type,Date,Num,Name,Memo,Split,Amount\r\n" +
+            ",Check,10/05/2026,1042,Landlord LLC,October rent,Rent,\"-1,250.00\"\r\n" +
+            ",Check,10/22/2026,,Someone,,Rent,-1.00\r\n");
+        var r = Qb.ImportRegister(csv, "checking-noacct.csv", checking.Id);
+
+        Assert.Equal(3, RegisterRows("American Express"));
+        Assert.Equal(["Checking"], r.Accounts.Select(a => a.QbAccount));
+        // Checking rows in 10/05–10/22 missing from this file and unmatched: only the journal entry (10/20).
+        Assert.Equal(1, r.Removed);
+    }
+
+    [Fact]
+    public void Account_name_case_differences_still_scope_removal_to_that_account()
+    {
+        BankSetup();
+        Qb.ImportRegister(RegisterCsv([.. CheckingRegister, .. AmexRegister]), "history.csv");
+        var upper = CheckingRegister.Where(x => x.Item3 != "General Journal").Append(Late).Select(x => x with { Item1 = "CHECKING" }).ToArray();
+
+        var r = Qb.ImportRegister(RegisterCsv(upper), "upper.csv");
+        Assert.Equal((1, 3, 1), (r.Added, r.Unchanged, r.Removed));
+        Assert.Equal(3, RegisterRows("American Express"));
+    }
+
     [Fact]
     public void Report_without_account_column_needs_an_account()
     {

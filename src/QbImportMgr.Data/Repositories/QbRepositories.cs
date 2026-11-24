@@ -47,7 +47,7 @@ public sealed class QbRegisterRepository(DbSession s) : RepositoryBase(s)
     {
         var stale = Query<(long Id, string RowKey)>($"""
             SELECT Id, RowKey FROM QbRegisterTxn
-            WHERE QbAccountName = @qbAccountName AND TxnDate BETWEEN @from AND @to AND Id NOT IN ({LinkedIds})
+            WHERE QbAccountName = @qbAccountName COLLATE NOCASE AND TxnDate BETWEEN @from AND @to AND Id NOT IN ({LinkedIds})
             """, new { qbAccountName, from = DbUtil.Date(from), to = DbUtil.Date(to) })
             .Where(r => !keepKeys.Contains(r.RowKey)).Select(r => r.Id).ToList();
         foreach (var chunk in stale.Chunk(500))
