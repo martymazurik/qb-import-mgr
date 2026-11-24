@@ -313,7 +313,8 @@ Downloads overlap and don't line up with statements, so the check compares two l
 | Dates | `MM/DD/YYYY` |
 | File | Windows-1252 encoding, CRLF line endings |
 | Text fields | Tabs, quotes and line breaks removed |
-| NAME | Only when a QuickBooks name is assigned (never invents names) |
+| NAME (TRNS) | The payee, only when a QuickBooks name is assigned (never invents names) |
+| NAME (SPL) | Blank, except a Customer set on a split line (QuickBooks reads a split NAME as the billable Customer:Job and rejects vendors there) |
 | MEMO | Without a QB name, the bank payee goes in the memo so it isn't lost |
 | CLEAR | `Y` by default (setting) |
 

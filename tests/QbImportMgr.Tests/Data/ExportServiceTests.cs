@@ -57,6 +57,37 @@ public class ExportServiceTests : DataTestBase
     }
 
     [Fact]
+    public void Export_writes_vendor_on_trns_only_and_keeps_customer_split_names()
+    {
+        ImportSample("bank_sgml_1x.qbo");
+        SetUpQuickBooks();
+        long NameId(string n) { using var s = Db.Open(); return s.Names.FindByName(n)!.Id; }
+
+        var txns = AllTxns();
+        var att = txns.Single(t => t.Name == "AT&T *PAYMENT");
+        Txns.SetCategory(att.Id, CategoryId("Utilities:Telephone"));
+        Txns.SetName(att.Id, NameId("AT&T"));
+        var check = txns.Single(t => t.CheckNum == "1042");
+        Txns.SetName(check.Id, NameId("Delta Air Lines"));
+        Txns.SetSplits(check.Id,
+        [
+            new TxnSplit { CategoryId = CategoryId("Travel"), QbNameId = NameId("Acme Corp:Project X"), AmountCents = -100000 },
+            new TxnSplit { CategoryId = CategoryId("Meals and Entertainment"), QbNameId = NameId("Delta Air Lines"), AmountCents = -25000 },
+        ]);
+        Txns.MarkReady([att.Id, check.Id]);
+
+        var text = IifWriter.Encoding.GetString(File.ReadAllBytes(Export.Export([att.Id, check.Id]).IifPath));
+
+        Assert.Contains("TRNS\t\tCHECK\t10/02/2026\tChecking\tAT&T\t\t-54.23\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/02/2026\tUtilities:Telephone\t\t\t54.23\t", text);
+        Assert.Contains("TRNS\t\tCHECK\t10/05/2026\tChecking\tDelta Air Lines\t\t-1250.00\t1042\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/05/2026\tTravel\tAcme Corp:Project X\t\t1000.00\t1042\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/05/2026\tMeals and Entertainment\t\t\t250.00\t1042\t", text);
+        Assert.Equal(2, text.Split("\r\n").Count(l => l.StartsWith("TRNS\t") && l.Split('\t')[5] != ""));
+        Assert.Equal(1, text.Split("\r\n").Count(l => l.StartsWith("SPL\t") && l.Split('\t')[5] != ""));
+    }
+
+    [Fact]
     public void Clear_setting_controls_iif_clear_column()
     {
         var ids = ReadyBankRows();

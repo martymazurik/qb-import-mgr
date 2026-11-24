@@ -63,7 +63,8 @@ public sealed class ExportService(Database db, AppPaths paths, BackupService bac
                 splits[t.Id].Select(x => new ExportSplit(
                     x.CategoryId, catById.TryGetValue(x.CategoryId, out var sc) ? sc.FullName : null,
                     x.QbNameId, x.QbNameId is { } sn && nameById.TryGetValue(sn, out var snm) ? snm.Name : null,
-                    x.Class, x.AmountCents, x.Memo)).ToList());
+                    x.Class, x.AmountCents, x.Memo,
+                    x.QbNameId is { } st && nameById.TryGetValue(st, out var stn) ? stn.NameType : null)).ToList());
         }).ToList();
 
         var qbAccounts = categories

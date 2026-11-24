@@ -28,7 +28,7 @@ public class IifWriterTests
             "!SPL\tSPLID\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tDOCNUM\tMEMO\tCLEAR\r\n" +
             "!ENDTRNS\r\n" +
             "TRNS\t\tCHECK\t10/02/2026\tChecking\tDelta Air Lines\tAdmin\t-1250.00\t1042\t\tY\r\n" +
-            "SPL\t\tCHECK\t10/02/2026\tTravel\tDelta Air Lines\tAdmin\t1250.00\t1042\t\tN\r\n" +
+            "SPL\t\tCHECK\t10/02/2026\tTravel\t\tAdmin\t1250.00\t1042\t\tN\r\n" +
             "ENDTRNS\r\n";
         Assert.Equal(expected, text);
     }
@@ -76,6 +76,51 @@ public class IifWriterTests
         Assert.Equal(["Field", "Admin"], t.Splits.Select(s => s.Class));
         Assert.Equal("Airfare", t.Splits[0].Memo);
         Assert.Equal("AT&T *PAYMENT - ACH DEBIT", t.Splits[1].Memo); // falls back to txn memo
+    }
+
+    [Fact]
+    public void Vendor_name_is_written_on_trns_line_only()
+    {
+        var text = WriteText(Item(amount: -5423, category: "Utilities:Telephone", name: "AT&T"));
+        Assert.Contains("TRNS\t\tCHECK\t10/02/2026\tChecking\tAT&T\t\t-54.23\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/02/2026\tUtilities:Telephone\t\t\t54.23\t", text);
+    }
+
+    [Theory]
+    [InlineData(QbNameType.Vendor)]
+    [InlineData(QbNameType.OtherName)]
+    [InlineData(QbNameType.Employee)]
+    [InlineData(null)]
+    public void Split_name_is_blank_unless_customer(QbNameType? type)
+    {
+        var splits = new List<ExportSplit>
+        {
+            new(10, "Office Supplies", 30, "Staples", null, -3000, null, type),
+            new(11, "Postage", null, null, null, -2000, null),
+        };
+        var item = Item(amount: -5000, category: null, name: "Staples", splits: splits);
+        var t = IifMapper.ToIif(item, new ExportOptions());
+
+        Assert.Equal("Staples", t.Name);
+        Assert.All(t.Splits, s => Assert.Null(s.Name));
+        var text = WriteText(item);
+        Assert.Contains("SPL\t\tCHECK\t10/02/2026\tOffice Supplies\t\t\t30.00\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/02/2026\tPostage\t\t\t20.00\t", text);
+    }
+
+    [Fact]
+    public void Customer_split_name_is_kept_for_billable_use()
+    {
+        var splits = new List<ExportSplit>
+        {
+            new(10, "Job Materials", 40, "Smith Remodel", null, -7500, null, QbNameType.Customer),
+            new(11, "Office Supplies", null, null, null, -2500, null),
+        };
+        var text = WriteText(Item(amount: -10000, category: null, name: "Home Depot", splits: splits));
+
+        Assert.Contains("TRNS\t\tCHECK\t10/02/2026\tChecking\tHome Depot\t\t-100.00\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/02/2026\tJob Materials\tSmith Remodel\t\t75.00\t", text);
+        Assert.Contains("SPL\t\tCHECK\t10/02/2026\tOffice Supplies\t\t\t25.00\t", text);
     }
 
     [Fact]

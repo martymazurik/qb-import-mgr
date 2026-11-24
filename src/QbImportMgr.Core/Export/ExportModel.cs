@@ -3,8 +3,12 @@ using QbImportMgr.Core.Iif;
 
 namespace QbImportMgr.Core.Export;
 
-/// <summary>A split with its references resolved. A null name for a non-null id means the referenced row is missing.</summary>
-public sealed record ExportSplit(long CategoryId, string? CategoryName, long? QbNameId, string? QbName, string? Class, long AmountCents, string? Memo);
+/// <summary>
+/// A split with its references resolved. A null name for a non-null id means the referenced row is missing.
+/// QbNameType is the referenced name's list type; only a Customer is written on the SPL line.
+/// </summary>
+public sealed record ExportSplit(long CategoryId, string? CategoryName, long? QbNameId, string? QbName, string? Class, long AmountCents, string? Memo,
+    QbNameType? QbNameType = null);
 
 /// <summary>A transaction with its account, category, name and splits resolved by the data layer.</summary>
 public sealed record ExportItem(
@@ -36,12 +40,12 @@ public static class IifMapper
             ? item.Splits
                 .Select(s => new IifSplitLine(
                     s.CategoryName ?? throw Missing(item, "split category"),
-                    s.QbName ?? item.QbName,
+                    SplitName(s),
                     s.Class ?? item.Class,
                     -s.AmountCents,
                     string.IsNullOrWhiteSpace(s.Memo) ? memo : s.Memo))
                 .ToList()
-            : [new IifSplitLine(item.CategoryName ?? throw Missing(item, "category"), item.QbName, item.Class, -item.SignedAmountCents, memo)];
+            : [new IifSplitLine(item.CategoryName ?? throw Missing(item, "category"), null, item.Class, -item.SignedAmountCents, memo)];
 
         return new IifTransaction(
             IifTypes.For(item.Kind, item.SignedAmountCents),
@@ -55,6 +59,13 @@ public static class IifMapper
             options.Clear,
             lines);
     }
+
+    /// <summary>
+    /// The payee goes on the TRNS line only. On a CHECK/DEPOSIT/CREDIT CARD split line QuickBooks reads NAME
+    /// as the Customer:Job for a billable item, so a vendor there is rejected (errors 10143/11114).
+    /// A split keeps its own name only when that name is a Customer.
+    /// </summary>
+    internal static string? SplitName(ExportSplit s) => s.QbNameType == QbNameType.Customer ? s.QbName : null;
 
     /// <summary>Without a QB name the bank payee would be lost, so it goes in the memo.</summary>
     internal static string BuildMemo(ExportItem item)
