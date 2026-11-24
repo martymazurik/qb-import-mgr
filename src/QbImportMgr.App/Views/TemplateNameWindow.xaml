@@ -1,0 +1,17 @@
+<Window x:Class="QbImportMgr.App.Views.TemplateNameWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Save split template" Width="420" SizeToContent="Height" FontSize="13" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <StackPanel Margin="14">
+    <TextBlock Text="Template name" Style="{StaticResource Label}" />
+    <TextBox x:Name="NameBox" Margin="0,2,0,10" />
+    <RadioButton x:Name="PercentOption" Content="Percentages (scale with the amount)" IsChecked="True" Margin="0,2" />
+    <RadioButton x:Name="FixedOption" Content="Fixed amounts" Margin="0,2" />
+    <TextBlock Text="The last line always takes whatever remains, so splits balance." Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap" />
+    <WrapPanel HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Save" IsDefault="True" Click="Save_Click" />
+      <Button Content="Cancel" IsCancel="True" />
+    </WrapPanel>
+  </StackPanel>
+</Window>

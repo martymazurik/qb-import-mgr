@@ -31,6 +31,15 @@ public sealed class Database
         return new DbSession(c);
     }
 
+    /// <summary>True when the database file exists and is older than this build's schema (so a backup should come first).</summary>
+    public bool NeedsUpgrade()
+    {
+        if (!File.Exists(Path)) return false;
+        using var s = Open();
+        int v = s.Connection.ExecuteScalar<int>("PRAGMA user_version;");
+        return v > 0 && v < Migrator.LatestVersion;
+    }
+
     /// <summary>Creates or upgrades the schema. Returns the resulting schema version.</summary>
     public int Migrate()
     {
@@ -95,6 +104,8 @@ public sealed class DbSession(SqliteConnection connection) : IDisposable
 internal static class Migrator
 {
     private static readonly string[] Scripts = ["Schema_001.sql", "Schema_002.sql", "Schema_003.sql"];
+
+    public static int LatestVersion => Scripts.Length;
 
     /// <summary>
     /// Runs pending scripts, each in its own transaction. Foreign keys are switched off for the

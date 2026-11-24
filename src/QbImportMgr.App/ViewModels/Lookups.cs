@@ -26,6 +26,7 @@ public sealed class Lookups : CommunityToolkit.Mvvm.ComponentModel.ObservableObj
     public IReadOnlyList<CategoryOption> Categories { get; private set; } = [];
     public IReadOnlyList<NameOption> Names { get; private set; } = [NameOption.None];
     public IReadOnlyList<string> Classes { get; private set; } = [];
+    public IReadOnlyList<SplitTemplate> Templates { get; private set; } = [];
     public bool HasQbLists => _categoryById.Count > 0;
 
     public void Reload(DbSession s)
@@ -38,6 +39,7 @@ public sealed class Lookups : CommunityToolkit.Mvvm.ComponentModel.ObservableObj
         _nameById = rawNames.ToDictionary(n => n.Id, n => new NameOption(n.Id, n.Name, TypeLabel(n.NameType)));
         Names = [NameOption.None, .. rawNames.Where(n => n.IsActive).Select(n => _nameById[n.Id])];
         Classes = s.Settings.GetClasses();
+        Templates = s.Templates.GetAll();
         OnPropertyChanged(string.Empty);
     }
 

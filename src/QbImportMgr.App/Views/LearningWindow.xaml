@@ -1,0 +1,76 @@
+<Window x:Class="QbImportMgr.App.Views.LearningWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Learn from QuickBooks" Width="1180" Height="640" MinHeight="360" FontSize="13"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="14">
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Summary}" FontWeight="SemiBold" />
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,2,0,8" Foreground="{StaticResource MutedBrush}"
+               Text="Each accepted suggestion becomes a rule (payee pattern → account + QB name) and a payee alias, marked &quot;Learned from QB&quot;. Hand-made rules are never overwritten; overlaps show as conflicts. Edit a pattern before accepting if needed." />
+
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+      <TextBlock Text="Threshold: at least" VerticalAlignment="Center" />
+      <TextBox Width="40" Margin="6,0" Text="{Binding MinCount, UpdateSourceTrigger=PropertyChanged}" />
+      <TextBlock Text="occurrences and" VerticalAlignment="Center" />
+      <TextBox Width="40" Margin="6,0" Text="{Binding MinAgreementPercent, UpdateSourceTrigger=PropertyChanged}" />
+      <TextBlock Text="% agreement" VerticalAlignment="Center" Margin="0,0,16,0" />
+      <Button Content="Accept all above threshold" Command="{Binding AcceptAboveThresholdCommand}" />
+      <Button Content="Tick above threshold" Command="{Binding SelectAboveThresholdCommand}" />
+      <Button Content="Untick all" Command="{Binding SelectNoneCommand}" />
+      <CheckBox Content="Hide already covered" IsChecked="{Binding HideCovered}" VerticalAlignment="Center" Margin="10,0,0,6" />
+    </WrapPanel>
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+      <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+      <WrapPanel HorizontalAlignment="Right">
+        <Button Content="Accept ticked" IsDefault="True" Command="{Binding AcceptSelectedCommand}" />
+        <Button Content="Close" IsCancel="True" />
+      </WrapPanel>
+    </DockPanel>
+
+    <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+              HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEF0F2"
+              EnableRowVirtualization="True" VirtualizingPanel.IsVirtualizing="True">
+      <DataGrid.RowStyle>
+        <Style TargetType="DataGridRow">
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding State}" Value="Conflict">
+              <Setter Property="Background" Value="#FDECEC" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding State}" Value="Covered">
+              <Setter Property="Foreground" Value="#8A8A8A" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding State}" Value="MissingAccount">
+              <Setter Property="Foreground" Value="#8A8A8A" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </DataGrid.RowStyle>
+      <DataGrid.Columns>
+        <DataGridTemplateColumn Header="Accept" Width="60" SortMemberPath="Accept">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <CheckBox HorizontalAlignment="Center" IsChecked="{Binding Accept, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanAccept}" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn Header="Bank pattern (editable)" Width="190" Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}" />
+        <DataGridTextColumn Header="QB name" Width="150" IsReadOnly="True" Binding="{Binding QbName}" />
+        <DataGridTextColumn Header="Account" Width="170" IsReadOnly="True" Binding="{Binding Account}" />
+        <DataGridTextColumn Header="Count" Width="55" IsReadOnly="True" Binding="{Binding Count}" />
+        <DataGridTextColumn Header="Agree" Width="55" IsReadOnly="True" Binding="{Binding Agreement}" SortMemberPath="AgreementValue" />
+        <DataGridTextColumn Header="From" Width="70" IsReadOnly="True" Binding="{Binding Basis}" />
+        <DataGridTextColumn Header="Bank hits" Width="65" IsReadOnly="True" Binding="{Binding BankHits}" />
+        <DataGridTextColumn Header="State" Width="120" IsReadOnly="True" Binding="{Binding StateText}" />
+        <DataGridTextColumn Header="Note / samples" Width="*" IsReadOnly="True" Binding="{Binding Note}">
+          <DataGridTextColumn.CellStyle>
+            <Style TargetType="DataGridCell">
+              <Setter Property="ToolTip" Value="{Binding Samples}" />
+            </Style>
+          </DataGridTextColumn.CellStyle>
+        </DataGridTextColumn>
+        <DataGridTextColumn Header="Sample bank texts" Width="260" IsReadOnly="True" Binding="{Binding Samples}" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</Window>

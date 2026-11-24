@@ -102,13 +102,19 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void RefreshInboxCount() => InboxCount = _svc.Import.ScanInbox().Count;
 
-    private static readonly (TxnStatus Status, string Label)[] Views =
+    private static readonly (TxnStatus? Status, string Label)[] Views =
     [
         (TxnStatus.New, "Needs category"),
         (TxnStatus.Duplicate, "Possible duplicates"),
+        (TxnStatus.Ambiguous, "Ambiguous match"),
+        (TxnStatus.HoldReceivePayment, "Waiting for Receive Payments"),
         (TxnStatus.Ready, "Ready"),
+        (TxnStatus.InQb, "In QuickBooks"),
+        (null, "Transfers"),
         (TxnStatus.Excluded, "Excluded"),
     ];
+
+    private static readonly TxnStatus[] Attention = [TxnStatus.New, TxnStatus.Duplicate, TxnStatus.Ambiguous, TxnStatus.HoldReceivePayment];
 
     private void RebuildTree(string? selectKey = null)
     {
@@ -138,7 +144,11 @@ public sealed partial class MainViewModel : ObservableObject
 
         var views = new TreeNodeViewModel(NodeKind.Header, "Views", "hdr:views") { IsExpanded = true };
         foreach (var (status, label) in Views)
-            views.Children.Add(new TreeNodeViewModel(NodeKind.View, label, $"view:{status}") { ViewStatus = status });
+            views.Children.Add(new TreeNodeViewModel(NodeKind.View, label, $"view:{status?.ToString() ?? "Transfers"}")
+            {
+                ViewStatus = status,
+                IsTransfers = status is null,
+            });
 
         Tree.Add(accountsHeader);
         Tree.Add(views);
@@ -161,15 +171,16 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 if (n.Kind == NodeKind.View)
                 {
-                    int c = global.GetValueOrDefault(n.ViewStatus!.Value);
+                    int c = global.GetValueOrDefault(n.ViewStatus ?? TxnStatus.Paired);
                     n.Badge = c.ToString(CultureInfo.InvariantCulture);
-                    n.NeedsAttention = c > 0 && n.ViewStatus is TxnStatus.New or TxnStatus.Duplicate;
+                    n.NeedsAttention = c > 0 && n.ViewStatus is { } vs && Attention.Contains(vs);
                 }
                 else if (n.Kind == NodeKind.Account)
                 {
                     var a = _accounts.GetValueOrDefault(n.AccountId!.Value) ?? s.Accounts.Get(n.AccountId!.Value)!;
                     var c = s.Txns.StatusCounts(a.Id);
-                    int open = c.GetValueOrDefault(TxnStatus.New) + c.GetValueOrDefault(TxnStatus.Categorized) + c.GetValueOrDefault(TxnStatus.Duplicate);
+                    int open = c.GetValueOrDefault(TxnStatus.New) + c.GetValueOrDefault(TxnStatus.Categorized) + c.GetValueOrDefault(TxnStatus.Duplicate)
+                               + c.GetValueOrDefault(TxnStatus.Ambiguous) + c.GetValueOrDefault(TxnStatus.HoldReceivePayment);
                     n.Label = a.DisplayName;
                     n.Badge = open > 0 ? $"{open} open" : null;
                     n.Subtitle = a.QbAccountName is null ? "not mapped to QuickBooks" : $"→ {a.QbAccountName}";
@@ -206,6 +217,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             NodeKind.Account => s.Txns.ListByAccount(node.AccountId!.Value),
             NodeKind.Statement => s.Txns.ListByStatement(node.StatementId!.Value),
+            _ when node.IsTransfers => s.Txns.ListPaired(),
             _ => s.Txns.ListByStatus(node.ViewStatus!.Value),
         };
         var withSplits = s.Splits.TxnIdsWithSplits(txns.Select(t => t.Id));
@@ -233,7 +245,7 @@ public sealed partial class MainViewModel : ObservableObject
         var byStatus = Rows.GroupBy(r => r.Status).ToDictionary(g => g.Key, g => g.Count());
         var parts = new List<string> { $"{Rows.Count} rows" };
         foreach (var st in Enum.GetValues<TxnStatus>())
-            if (byStatus.TryGetValue(st, out var n)) parts.Add($"{(st == TxnStatus.Duplicate ? "Possible dup" : st.ToString())} {n}");
+            if (byStatus.TryGetValue(st, out var n)) parts.Add($"{StatusLabels.Short(st)} {n}");
         FooterCounts = string.Join("  ·  ", parts);
 
         var counted = Rows.Where(r => r.Status is not (TxnStatus.Excluded or TxnStatus.Duplicate)).ToList();
@@ -534,6 +546,10 @@ public sealed partial class MainViewModel : ObservableObject
             foreach (var w in r.Warnings) sb.AppendLine($"    warning: {w}");
         }
 
+        foreach (var rec in results.Select(r => r.Reconcile).OfType<ReconcileSummary>().Where(r => r != ReconcileSummary.Empty))
+            sb.AppendLine($"QuickBooks register: {rec.Matched} already in QB, {rec.Ambiguous} ambiguous; transfers paired: {rec.Paired}; held for Receive Payments: {rec.Held}");
+
+        ClearUndo(); // matching may have changed rows that earlier undo entries describe
         ReloadLookups();
         RebuildTree();
         RefreshInboxCount();
@@ -600,6 +616,126 @@ public sealed partial class MainViewModel : ObservableObject
         if (errors.Count > 0) _dialogs.Error(string.Join("\n", errors));
         ReloadLookups();
         RebuildTree();
+    }
+
+    // ================================================================== QuickBooks register, learning, names, audit
+
+    [RelayCommand]
+    private void ImportRegister()
+    {
+        var path = _dialogs.OpenFile("Import QB register (Reports > Custom Reports > Transaction Detail, saved as CSV)",
+            "CSV files (*.csv)|*.csv|All files (*.*)|*.*");
+        if (path is null) return;
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            var info = _svc.Qb.Inspect(bytes);
+            long? accountId = null;
+            if (!info.HasAccountColumn)
+            {
+                var mapped = _accounts.Values.Where(a => a.QbAccountName is not null).OrderBy(a => a.DisplayName).ToList();
+                if (mapped.Count == 0) { _dialogs.Info("Map your bank accounts to QuickBooks accounts first (Settings > Accounts)."); return; }
+                accountId = _dialogs.ChooseAccount(mapped,
+                    $"This report has no Account column ({info.Rows} rows, {info.From:MM/dd/yyyy}–{info.To:MM/dd/yyyy}). Which account's register is it?");
+                if (accountId is null) return;
+            }
+
+            var r = _svc.Qb.ImportRegister(bytes, Path.GetFileName(path), accountId);
+            var sb = new StringBuilder();
+            sb.AppendLine($"{r.FileName}: {r.Rows} rows · {r.Added} new · {r.Unchanged} already known · {r.Removed} removed (changed or deleted in QB)");
+            foreach (var a in r.Accounts)
+                sb.AppendLine($"    {a.QbAccount}: {a.Rows} rows → {a.BankAccount ?? "no mapped bank account (kept for learning only)"}");
+            sb.AppendLine();
+            sb.AppendLine($"Already in QuickBooks: {r.Reconcile.Matched} matched now");
+            sb.AppendLine($"Ambiguous (pick a match): {r.Reconcile.Ambiguous}");
+            if (r.Reconcile.AmbiguityCleared > 0) sb.AppendLine($"Ambiguity resolved: {r.Reconcile.AmbiguityCleared}");
+            sb.AppendLine($"Transfers paired: {r.Reconcile.Paired}  ·  Receive-payment holds: {r.Reconcile.Held} new, {r.Reconcile.Released} released");
+            foreach (var w in r.Warnings.Take(10)) sb.AppendLine($"warning: {w}");
+
+            ClearUndo();
+            ReloadLookups();
+            RebuildTree();
+            StatusMessage = $"QB register imported: {r.Reconcile.Matched} matched, {r.Reconcile.Ambiguous} ambiguous.";
+            _dialogs.ShowText("QB register import", sb.ToString());
+            if (_dialogs.Confirm("Review payee and account suggestions learned from QuickBooks now?", "Learn from QuickBooks"))
+                LearnFromQb();
+        }
+        catch (Exception ex) when (IsUserError(ex) || ex is Core.Qb.QbRegisterFormatException)
+        {
+            _dialogs.Error(ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private void LearnFromQb()
+    {
+        if (_svc.Qb.RegisterRowCount() == 0)
+        {
+            _dialogs.Info("Import a QuickBooks register (File > Import QB register) first. A long history file (e.g. two years, all bank and card accounts) teaches the most.");
+            return;
+        }
+        var vm = new LearningViewModel(_svc, _dialogs);
+        _dialogs.ShowLearning(vm);
+        if (vm.Result is null) return;
+        ClearUndo();
+        ReloadLookups();
+        RebuildTree();
+        StatusMessage = $"Learned {vm.Result.RulesCreated} rules ({vm.Result.RulesUpdated} updated), {vm.Result.AliasesCreated} aliases; {vm.Result.RowsRecategorized} rows categorized.";
+    }
+
+    [RelayCommand]
+    private void ShowNames()
+    {
+        var vm = new NamesViewModel(_svc, _dialogs);
+        _dialogs.ShowNames(vm);
+        if (!vm.Changed) return;
+        ClearUndo();
+        ReloadLookups();
+        RebuildTree();
+    }
+
+    [RelayCommand]
+    private void ShowAuditLog() => _dialogs.ShowAudit(new AuditViewModel(_svc));
+
+    public void NotInQb(TxnRowViewModel row) => Run("Not in QB", [row.Id], () => [_svc.Txns.NotInQb(row.Id)]);
+
+    public void PickMatch(TxnRowViewModel row)
+    {
+        try
+        {
+            var options = _svc.Txns.MatchOptions(row.Id);
+            if (options.Count == 0) { _dialogs.Info("No unmatched QuickBooks rows with this amount are left for this account."); return; }
+            var vm = new PickMatchViewModel(row, options);
+            if (!_dialogs.ShowPickMatch(vm) || vm.Selected is null) return;
+            Run("Pick match", [row.Id], () => [_svc.Txns.PickMatch(row.Id, vm.Selected.Row.Id)]);
+        }
+        catch (Exception ex) when (IsUserError(ex)) { _dialogs.Error(ex.Message); }
+    }
+
+    public void Unpair(TxnRowViewModel row)
+    {
+        var ids = new[] { row.Id, row.Txn.PairedTxnId ?? row.Id }.Distinct().ToList();
+        if (Run("Unpair transfer", ids, () => _svc.Txns.Unpair(row.Id)))
+            ReloadChanged(ids);
+    }
+
+    public void SaveTemplate(TxnRowViewModel row)
+    {
+        if (_dialogs.AskTemplate() is not { } answer) return;
+        try
+        {
+            var t = _svc.Templates.SaveFromTxn(row.Id, answer.Name, answer.Kind);
+            ReloadLookups();
+            StatusMessage = $"Template \"{t.Name}\" saved ({t.Lines.Count} lines, {answer.Kind.ToString().ToLowerInvariant()}).";
+        }
+        catch (Exception ex) when (IsUserError(ex)) { _dialogs.Error(ex.Message); }
+    }
+
+    public void DeleteTemplate(SplitTemplate template)
+    {
+        if (!_dialogs.Confirm($"Delete split template \"{template.Name}\"? Rules that use it will stop applying it.")) return;
+        _svc.Templates.Delete(template.Id);
+        ReloadLookups();
     }
 
     // ================================================================== export

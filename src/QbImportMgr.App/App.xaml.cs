@@ -35,6 +35,8 @@ public partial class App : Application
         }
 
         var db = new Database(paths.Database);
+        if (db.NeedsUpgrade())
+            new BackupService(db, paths, TimeProvider.System).Backup(); // schema upgrades rebuild tables: back up first
         db.Migrate();
 
         var services = AppServices.Create(paths, db, TimeProvider.System);
@@ -62,7 +64,10 @@ public sealed record AppServices(
     ExportService Export,
     ListImportService Lists,
     AccountService Accounts,
-    LedgerService Ledger)
+    LedgerService Ledger,
+    QbService Qb,
+    TemplateService Templates,
+    AuditService Audit)
 {
     public static AppServices Create(AppPaths paths, Database db, TimeProvider clock)
     {
@@ -73,6 +78,9 @@ public sealed record AppServices(
             new ExportService(db, paths, backup, clock),
             new ListImportService(db, clock),
             new AccountService(db, clock),
-            new LedgerService(db));
+            new LedgerService(db),
+            new QbService(db, clock),
+            new TemplateService(db, clock),
+            new AuditService(db));
     }
 }

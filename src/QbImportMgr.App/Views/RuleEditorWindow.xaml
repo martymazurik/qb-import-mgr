@@ -11,7 +11,7 @@
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
       <Grid.RowDefinitions>
-        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
       </Grid.RowDefinitions>
 
       <TextBlock Grid.Row="0" Text="When" Style="{StaticResource Label}" />
@@ -52,6 +52,11 @@
       </StackPanel>
 
       <CheckBox Grid.Row="7" Grid.Column="1" Margin="0,4" IsChecked="{Binding AutoExclude}" Content="Auto-exclude matching rows (e.g. transfers you enter in QB yourself)" />
+
+      <TextBlock Grid.Row="9" Text="Split template" Style="{StaticResource Label}" />
+      <ComboBox Grid.Row="9" Grid.Column="1" Margin="0,3" ItemsSource="{Binding Lookups.Templates}" DisplayMemberPath="Name"
+                SelectedItem="{Binding Template}" IsEnabled="{Binding AutoExclude, Converter={StaticResource Not}}"
+                ToolTip="Optional: split matching rows with this template instead of a single category" />
 
       <TextBlock Grid.Row="8" Text="Priority" Style="{StaticResource Label}" />
       <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" Margin="0,3">

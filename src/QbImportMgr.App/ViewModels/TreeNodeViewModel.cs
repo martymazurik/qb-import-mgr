@@ -20,6 +20,9 @@ public sealed partial class TreeNodeViewModel : ObservableObject
     public long? AccountId { get; init; }
     public long? StatementId { get; init; }
     public TxnStatus? ViewStatus { get; init; }
+
+    /// <summary>The Transfers view: rows that are one side of a pair.</summary>
+    public bool IsTransfers { get; init; }
     public ObservableCollection<TreeNodeViewModel> Children { get; } = [];
 
     [ObservableProperty] private string _label;

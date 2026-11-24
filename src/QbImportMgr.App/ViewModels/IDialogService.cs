@@ -1,3 +1,5 @@
+using QbImportMgr.Core.Domain;
+
 namespace QbImportMgr.App.ViewModels;
 
 public interface IDialogService
@@ -12,4 +14,14 @@ public interface IDialogService
     void ShowExport(ExportViewModel vm);
     void ShowBatches(BatchesViewModel vm);
     void OpenFolder(string path);
+
+    /// <summary>Picks one of the given accounts; null when cancelled.</summary>
+    long? ChooseAccount(IReadOnlyList<BankAccount> accounts, string prompt);
+    bool ShowPickMatch(PickMatchViewModel vm);
+    void ShowLearning(LearningViewModel vm);
+    void ShowNames(NamesViewModel vm);
+    void ShowAudit(AuditViewModel vm);
+
+    /// <summary>Name and kind for a new split template; null when cancelled.</summary>
+    (string Name, TemplateLineKind Kind)? AskTemplate();
 }

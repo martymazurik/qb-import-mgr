@@ -27,7 +27,7 @@ public sealed class TxnRowViewModel(MainViewModel owner, Txn txn, string account
     public string CategoryText => HasSplits ? "(split)" : Category?.FullName ?? "";
     public decimal Amount => Txn.SignedAmountCents / 100m;
     public TxnStatus Status => Txn.Status;
-    public string StatusText => Txn.Status == TxnStatus.Duplicate ? "Duplicate?" : Txn.Status.ToString();
+    public string StatusText => StatusLabels.Short(Txn.Status) + (Txn.PairedTxnId is not null && Txn.Status != TxnStatus.Paired ? " ⇄" : "");
     public bool IsLocked => Txn.IsLocked;
 
     public void Update(Txn t, bool hasSplits)

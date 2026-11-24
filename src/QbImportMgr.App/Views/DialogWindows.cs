@@ -73,6 +73,32 @@ public sealed class DialogService(Window owner) : IDialogService
     public void ShowBatches(BatchesViewModel vm) =>
         new BatchesWindow { Owner = owner, DataContext = vm }.ShowDialog();
 
+    public long? ChooseAccount(IReadOnlyList<Core.Domain.BankAccount> accounts, string prompt)
+    {
+        var w = new ChooseAccountWindow(accounts, prompt) { Owner = owner };
+        return w.ShowDialog() == true ? w.SelectedId : null;
+    }
+
+    public bool ShowPickMatch(PickMatchViewModel vm) =>
+        new PickMatchWindow { Owner = owner, DataContext = vm }.ShowDialog() == true;
+
+    public void ShowLearning(LearningViewModel vm)
+    {
+        var w = new LearningWindow { Owner = owner, DataContext = vm };
+        vm.RequestClose += (_, _) => w.Close();
+        w.ShowDialog();
+    }
+
+    public void ShowNames(NamesViewModel vm) => new NamesWindow { Owner = owner, DataContext = vm }.ShowDialog();
+
+    public void ShowAudit(AuditViewModel vm) => new AuditWindow { Owner = owner, DataContext = vm }.ShowDialog();
+
+    public (string Name, Core.Domain.TemplateLineKind Kind)? AskTemplate()
+    {
+        var w = new TemplateNameWindow { Owner = owner };
+        return w.ShowDialog() == true ? (w.TemplateName, w.Kind) : null;
+    }
+
     public void OpenFolder(string path)
     {
         Directory.CreateDirectory(path);

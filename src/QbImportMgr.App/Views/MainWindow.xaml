@@ -17,6 +17,8 @@
         <MenuItem Header="Import _inbox" InputGestureText="Ctrl+I" Command="{Binding ImportInboxCommand}" />
         <MenuItem Header="Import _file..." Command="{Binding ImportFileCommand}" />
         <MenuItem Header="Import _QuickBooks lists (IIF)..." Command="{Binding ImportListsCommand}" />
+        <MenuItem Header="Import QB _register (CSV)..." Command="{Binding ImportRegisterCommand}"
+                  ToolTip="Reports > Custom Reports > Transaction Detail: Type, Date, Num, Name, Memo, Account, Clr, Split, Debit, Credit; save as CSV" />
         <Separator />
         <MenuItem Header="_Export Ready to IIF..." InputGestureText="Ctrl+E" Command="{Binding ExportCommand}" />
         <MenuItem Header="Export _batches / void..." Command="{Binding ShowBatchesCommand}" />
@@ -38,6 +40,11 @@
         <MenuItem Header="_Remember as rule..." Command="{Binding RememberRuleCommand}" />
         <Separator />
         <MenuItem Header="Re_fresh" InputGestureText="F5" Command="{Binding RefreshCommand}" />
+      </MenuItem>
+      <MenuItem Header="_Tools">
+        <MenuItem Header="_Learn from QuickBooks..." Command="{Binding LearnFromQbCommand}" />
+        <MenuItem Header="QuickBooks _names (invoiced customers)..." Command="{Binding ShowNamesCommand}" />
+        <MenuItem Header="_Audit log..." Command="{Binding ShowAuditLogCommand}" />
       </MenuItem>
       <MenuItem Header="_Settings">
         <MenuItem Header="_Accounts and QuickBooks mapping..." Command="{Binding EditAccountsCommand}" />
@@ -189,6 +196,18 @@
                 <DataTrigger Binding="{Binding Status}" Value="Exported">
                   <Setter Property="Foreground" Value="#7A7A7A" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="InQb">
+                  <Setter Property="Foreground" Value="#5F7F68" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Ambiguous">
+                  <Setter Property="Background" Value="{StaticResource DupBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="HoldReceivePayment">
+                  <Setter Property="Background" Value="#EAF2FB" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Paired">
+                  <Setter Property="Foreground" Value="#7A7A7A" />
+                </DataTrigger>
               </Style.Triggers>
             </Style>
           </DataGrid.RowStyle>
@@ -252,6 +271,45 @@
                 <WrapPanel>
                   <Button Content="Not a duplicate" Command="{Binding NotADuplicateCommand}" ToolTip="Back to New; rules re-run" />
                   <Button Content="Confirm duplicate" Command="{Binding ConfirmDuplicateCommand}" ToolTip="Move to Excluded" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Margin="0,8,0,0" Padding="8" Background="#EEF6F0" BorderBrush="#B9D8C2" BorderThickness="1" CornerRadius="4"
+                    Visibility="{Binding HasQbMatch, Converter={StaticResource BoolToVis}}">
+              <StackPanel>
+                <TextBlock Text="In QuickBooks" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding QbMatchText}" TextWrapping="Wrap" Margin="0,2,0,6" />
+                <WrapPanel Visibility="{Binding IsInQb, Converter={StaticResource BoolToVis}}">
+                  <Button Content="Not in QB" Command="{Binding NotInQbCommand}" ToolTip="Wrong match: unlink, back to New, never re-match this pair" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Margin="0,8,0,0" Padding="8" Background="{StaticResource DupBrush}" BorderBrush="#E8C27A" BorderThickness="1" CornerRadius="4"
+                    Visibility="{Binding IsAmbiguous, Converter={StaticResource BoolToVis}}">
+              <StackPanel>
+                <TextBlock Text="Ambiguous QuickBooks match" FontWeight="SemiBold" />
+                <TextBlock Text="More than one QuickBooks entry could be this transaction. Pick the right one, or say it isn't in QuickBooks." TextWrapping="Wrap" Margin="0,2,0,6" />
+                <WrapPanel>
+                  <Button Content="Pick match..." Command="{Binding PickMatchCommand}" />
+                  <Button Content="Not in QB" Command="{Binding NotInQbCommand}" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Margin="0,8,0,0" Padding="8" Background="#EAF2FB" BorderBrush="#A9C6E8" BorderThickness="1" CornerRadius="4"
+                    Visibility="{Binding IsHeld, Converter={StaticResource BoolToVis}}">
+              <TextBlock Text="{Binding HoldNote}" TextWrapping="Wrap" />
+            </Border>
+
+            <Border Margin="0,8,0,0" Padding="8" Background="#F1F1F4" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                    Visibility="{Binding IsPaired, Converter={StaticResource BoolToVis}}">
+              <StackPanel>
+                <TextBlock Text="Transfer between your accounts" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding PairText}" TextWrapping="Wrap" Margin="0,2,0,6" />
+                <WrapPanel>
+                  <Button Content="Unpair" Command="{Binding UnpairCommand}" ToolTip="Not a transfer: both sides back to normal" />
                 </WrapPanel>
               </StackPanel>
             </Border>
@@ -337,7 +395,20 @@
                 <Button Content="Add line" Command="{Binding AddSplitCommand}" />
                 <Button Content="Save splits" Command="{Binding SaveSplitsCommand}" />
                 <Button Content="Remove splits" Command="{Binding ClearSplitsCommand}" />
+                <Button Content="Save as template..." Command="{Binding SaveTemplateCommand}" ToolTip="Save these (saved) splits as a reusable template" />
               </WrapPanel>
+              <Grid Margin="0,2,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Template" Style="{StaticResource Label}" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Lookups.Templates}" DisplayMemberPath="Name" SelectedItem="{Binding SelectedTemplate}" />
+                <Button Grid.Column="2" Content="Apply" MinWidth="0" Margin="6,0,0,0" Command="{Binding ApplyTemplateCommand}" ToolTip="Fill the split lines from this template" />
+                <Button Grid.Column="3" Content="Delete" MinWidth="0" Margin="6,0,0,0" Command="{Binding DeleteTemplateCommand}" />
+              </Grid>
             </StackPanel>
 
             <TextBlock Text="Bank values (as downloaded)" Style="{StaticResource SectionHeader}" />

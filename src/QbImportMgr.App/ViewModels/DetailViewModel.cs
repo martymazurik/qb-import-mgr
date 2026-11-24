@@ -56,6 +56,17 @@ public sealed partial class DetailViewModel(MainViewModel owner, AppServices svc
     [ObservableProperty] private bool _isExcluded;
     [ObservableProperty] private bool _isReady;
 
+    // QuickBooks register / holds / transfers
+    [ObservableProperty] private bool _hasQbMatch;
+    [ObservableProperty] private string _qbMatchText = "";
+    [ObservableProperty] private bool _isInQb;
+    [ObservableProperty] private bool _isAmbiguous;
+    [ObservableProperty] private bool _isHeld;
+    [ObservableProperty] private bool _isPaired;
+    [ObservableProperty] private string _pairText = "";
+    [ObservableProperty] private SplitTemplate? _selectedTemplate;
+    public string HoldNote => "Waiting for Receive Payments: record with Receive Payments in QB, then re-import register.";
+
     // splits
     public ObservableCollection<SplitLineViewModel> Splits { get; } = [];
     [ObservableProperty] private string _remainderText = "";
@@ -110,7 +121,30 @@ public sealed partial class DetailViewModel(MainViewModel owner, AppServices svc
             ClassText = t.Class ?? "";
             IsDirty = false;
 
-            StatusText = row.StatusText + (t.RuleId is { } rid ? $"  ·  rule #{rid}" : "");
+            StatusText = StatusLabels.Long(t.Status) + (t.RuleId is { } rid ? $"  ·  rule #{rid}" : "");
+
+            HasQbMatch = false;
+            QbMatchText = "";
+            if (t.QbRegisterTxnId is { } qid && s.QbRegister.Get(qid) is { } q)
+            {
+                HasQbMatch = true;
+                QbMatchText = $"{q.TxnType}  ·  {D(q.TxnDate)}" + (q.Num is { } n ? $"  ·  #{n}" : "") +
+                              $"\nName: {q.Name ?? "(none)"}\nMemo: {q.Memo ?? ""}\nAccount: {q.QbAccountName}  →  {q.SplitAccount ?? "?"}" +
+                              (q.Clr is { } c ? $"\nCleared: {c}" : "") + $"\nFrom {q.SourceFile}";
+            }
+            IsInQb = t.Status == TxnStatus.InQb;
+            IsAmbiguous = t.Status == TxnStatus.Ambiguous;
+            IsHeld = t.Status == TxnStatus.HoldReceivePayment;
+            IsPaired = t.PairedTxnId is not null;
+            PairText = "";
+            if (t.PairedTxnId is { } pid && s.Txns.Get(pid) is { } other)
+            {
+                var acct = s.Accounts.Get(other.BankAccountId);
+                PairText = $"Transfer {(t.SignedAmountCents < 0 ? "to" : "from")} {acct?.DisplayName}: {D(other.DtPosted)}  {other.Name}  " +
+                           $"{Money.FormatDisplay(other.SignedAmountCents)}  [{StatusLabels.Short(other.Status)}]" +
+                           (t.Status == TxnStatus.Paired ? "\nThis side is not exported; the other side carries the transfer." :
+                            other.Status == TxnStatus.Paired ? "\nThis side exports the transfer (offset = the other account)." : "");
+            }
             IsLocked = t.IsLocked;
             IsDuplicate = t.Status == TxnStatus.Duplicate;
             IsExcluded = t.Status == TxnStatus.Excluded;
@@ -159,6 +193,62 @@ public sealed partial class DetailViewModel(MainViewModel owner, AppServices svc
         SaveSplitsCommand.NotifyCanExecuteChanged();
         ClearSplitsCommand.NotifyCanExecuteChanged();
         RememberRuleCommand.NotifyCanExecuteChanged();
+        NotInQbCommand.NotifyCanExecuteChanged();
+        PickMatchCommand.NotifyCanExecuteChanged();
+        UnpairCommand.NotifyCanExecuteChanged();
+        ApplyTemplateCommand.NotifyCanExecuteChanged();
+        SaveTemplateCommand.NotifyCanExecuteChanged();
+    }
+
+    // ------------------------------------------------------------------ QuickBooks match, transfers, templates
+
+    [RelayCommand(CanExecute = nameof(CanNotInQb))]
+    private void NotInQb() { if (Row is not null) owner.NotInQb(Row); }
+    private bool CanNotInQb() => Row is { Status: TxnStatus.InQb or TxnStatus.Ambiguous };
+
+    [RelayCommand(CanExecute = nameof(CanPickMatch))]
+    private void PickMatch() { if (Row is not null) owner.PickMatch(Row); }
+    private bool CanPickMatch() => Row is { Status: TxnStatus.Ambiguous };
+
+    [RelayCommand(CanExecute = nameof(CanUnpair))]
+    private void Unpair() { if (Row is not null) owner.Unpair(Row); }
+    private bool CanUnpair() => Row?.Txn.PairedTxnId is not null;
+
+    /// <summary>Fills the split editor from a template (not saved until "Save splits").</summary>
+    [RelayCommand(CanExecute = nameof(CanApplyTemplate))]
+    private void ApplyTemplate()
+    {
+        if (Row is null || SelectedTemplate is null) return;
+        foreach (var l in Splits) l.PropertyChanged -= OnSplitChanged;
+        Splits.Clear();
+        foreach (var x in SplitTemplateMath.Apply(SelectedTemplate.Lines, Row.Txn.SignedAmountCents))
+        {
+            var line = new SplitLineViewModel
+            {
+                Category = Lookups.Category(x.CategoryId),
+                AmountText = (SplitMath.ToEnteredCents(x.AmountCents, Row.Txn.SignedAmountCents) / 100m).ToString("0.00", CultureInfo.InvariantCulture),
+                Memo = x.Memo,
+            };
+            line.PropertyChanged += OnSplitChanged;
+            Splits.Add(line);
+        }
+        SplitsDirty = true;
+        Recalc();
+        owner.StatusMessage = $"Template \"{SelectedTemplate.Name}\" filled in; review and Save splits.";
+    }
+
+    private bool CanApplyTemplate() => Editable && SelectedTemplate is not null;
+    partial void OnSelectedTemplateChanged(SplitTemplate? value) => ApplyTemplateCommand.NotifyCanExecuteChanged();
+
+    [RelayCommand(CanExecute = nameof(CanSaveTemplate))]
+    private void SaveTemplate() { if (Row is not null) owner.SaveTemplate(Row); }
+    private bool CanSaveTemplate() => Row is { HasSplits: true } && !SplitsDirty;
+
+    [RelayCommand]
+    private void DeleteTemplate()
+    {
+        if (SelectedTemplate is { } t) owner.DeleteTemplate(t);
+        SelectedTemplate = null;
     }
 
     // ------------------------------------------------------------------ splits

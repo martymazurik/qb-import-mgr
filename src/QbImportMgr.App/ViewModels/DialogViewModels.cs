@@ -41,6 +41,7 @@ public sealed partial class RuleEditorViewModel : ObservableObject
     [ObservableProperty] private NameOption? _name;
     [ObservableProperty] private string _classText = "";
     [ObservableProperty] private bool _autoExclude;
+    [ObservableProperty] private SplitTemplate? _template;
     [ObservableProperty] private int _priority = 100;
     [ObservableProperty] private string _matchPreview = "";
     [ObservableProperty] private string _error = "";
@@ -121,10 +122,11 @@ public sealed partial class RuleEditorViewModel : ObservableObject
             MinCents = min,
             MaxCents = max,
             BankAccountId = OnlyThisAccount ? AccountId : null,
-            CategoryId = AutoExclude ? null : Category?.Id,
+            CategoryId = AutoExclude || Template is not null ? null : Category?.Id,
             QbNameId = AutoExclude ? null : Name?.Id,
             Class = AutoExclude || string.IsNullOrWhiteSpace(ClassText) ? null : ClassText.Trim(),
             AutoExclude = AutoExclude,
+            SplitTemplateId = AutoExclude ? null : Template?.Id,
             IsEnabled = true,
         };
     }
@@ -136,9 +138,9 @@ public sealed partial class RuleEditorViewModel : ObservableObject
         if (TextMatcher.Validate(MatchKind, Pattern) is { } err) { Error = err; return false; }
         if (TryBuild(out var e) is not { } r) { Error = e ?? "Invalid rule."; return false; }
         if (r.MinCents is { } mn && r.MaxCents is { } mx && mn > mx) { Error = "Minimum is greater than maximum."; return false; }
-        if (!r.AutoExclude && r.CategoryId is null && r.QbNameId is null && r.Class is null)
+        if (!r.AutoExclude && r.CategoryId is null && r.QbNameId is null && r.Class is null && r.SplitTemplateId is null)
         {
-            Error = "Pick a category (or a name or class), or tick Auto-exclude.";
+            Error = "Pick a category or split template (or a name or class), or tick Auto-exclude.";
             return false;
         }
         return true;
