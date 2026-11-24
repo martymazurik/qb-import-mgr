@@ -30,7 +30,14 @@ public sealed record OfxDocument(
     string Version,
     string EncodingName,
     IReadOnlyList<OfxStatement> Statements,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    /// <summary>Institution id from the sign-on: INTU.BID (Quicken/QuickBooks) or FI/FID.</summary>
+    public string? FiId { get; init; }
+
+    /// <summary>Institution name from SONRS/FI/ORG.</summary>
+    public string? FiOrg { get; init; }
+}
 
 public static class OfxParser
 {
@@ -57,7 +64,13 @@ public static class OfxParser
         if (statements.Count == 0)
             warnings.Add("File contains no bank or credit card statements.");
 
-        return new OfxDocument(decoded.Format, decoded.Version, decoded.Encoding.WebName, statements, warnings);
+        var sonrsFirst = root.Descendants("SONRS").FirstOrDefault();
+        var fi = sonrsFirst?.Child("FI");
+        return new OfxDocument(decoded.Format, decoded.Version, decoded.Encoding.WebName, statements, warnings)
+        {
+            FiId = Clean(sonrsFirst?.Child("INTU.BID")?.Value) ?? Clean(fi?.Get("FID")),
+            FiOrg = Clean(fi?.Get("ORG")),
+        };
     }
 
     private static OfxStatement? ParseStatement(OfxElement rs, AccountKind kind, string acctAggregate, List<string> warnings)

@@ -125,7 +125,7 @@ public class TxnServiceTests : DataTestBase
         Txns.Exclude(excluded.Id);
 
         var (rule, applied) = Txns.SaveRuleAndApply(new Rule { Pattern = "PARKING", CategoryId = CategoryId("Travel") });
-        Assert.Equal(1, applied);
+        Assert.Single(applied);
         Assert.True(rule.Id > 0);
         Assert.Equal(TxnStatus.Excluded, Get(excluded.Id).Status);
 

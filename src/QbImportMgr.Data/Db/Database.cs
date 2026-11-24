@@ -91,7 +91,7 @@ public sealed class DbSession(SqliteConnection connection) : IDisposable
 
 internal static class Migrator
 {
-    private static readonly string[] Scripts = ["Schema_001.sql"];
+    private static readonly string[] Scripts = ["Schema_001.sql", "Schema_002.sql"];
 
     public static int Migrate(SqliteConnection c)
     {

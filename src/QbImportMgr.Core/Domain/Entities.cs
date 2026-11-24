@@ -11,6 +11,10 @@ public sealed class BankAccount
     public string? QbAccountName { get; set; }
     public bool InvertSign { get; set; }
     public DateTime CreatedUtc { get; set; }
+
+    /// <summary>Institution id from the download (INTU.BID or FI/FID) and name (FI/ORG).</summary>
+    public string? FiId { get; set; }
+    public string? FiOrg { get; set; }
 }
 
 public sealed class QboFile

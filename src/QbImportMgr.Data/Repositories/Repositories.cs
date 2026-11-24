@@ -23,7 +23,7 @@ public sealed class BankAccountRepository(DbSession s) : RepositoryBase(s)
     private const string Select = """
         SELECT Id, OfxAcctIdMasked, AcctIdHash, BankId,
                CASE Kind WHEN 'BANK' THEN 'Bank' ELSE 'CreditCard' END AS Kind,
-               DisplayName, QbAccountName, InvertSign, CreatedUtc
+               DisplayName, QbAccountName, InvertSign, CreatedUtc, FiId, FiOrg
         FROM BankAccount
         """;
 
@@ -32,10 +32,15 @@ public sealed class BankAccountRepository(DbSession s) : RepositoryBase(s)
     public IReadOnlyList<BankAccount> GetAll() => Query<BankAccount>($"{Select} ORDER BY Kind, DisplayName").ToList();
 
     public long Insert(BankAccount a) => a.Id = Insert("""
-        INSERT INTO BankAccount (OfxAcctIdMasked, AcctIdHash, BankId, Kind, DisplayName, QbAccountName, InvertSign, CreatedUtc)
-        VALUES (@OfxAcctIdMasked, @AcctIdHash, @BankId, @Kind, @DisplayName, @QbAccountName, @InvertSign, @CreatedUtc)
+        INSERT INTO BankAccount (OfxAcctIdMasked, AcctIdHash, BankId, Kind, DisplayName, QbAccountName, InvertSign, CreatedUtc, FiId, FiOrg)
+        VALUES (@OfxAcctIdMasked, @AcctIdHash, @BankId, @Kind, @DisplayName, @QbAccountName, @InvertSign, @CreatedUtc, @FiId, @FiOrg)
         """, new { a.OfxAcctIdMasked, a.AcctIdHash, a.BankId, Kind = a.Kind.ToCode(), a.DisplayName, a.QbAccountName,
-                   InvertSign = a.InvertSign ? 1 : 0, CreatedUtc = DbUtil.Utc(a.CreatedUtc) });
+                   InvertSign = a.InvertSign ? 1 : 0, CreatedUtc = DbUtil.Utc(a.CreatedUtc), a.FiId, a.FiOrg });
+
+    /// <summary>Fills in institution info the first time a download carries it.</summary>
+    public void FillInstitution(long id, string? fiId, string? fiOrg) => Exec(
+        "UPDATE BankAccount SET FiId = COALESCE(FiId, @fiId), FiOrg = COALESCE(FiOrg, @fiOrg) WHERE Id = @id AND (FiId IS NULL OR FiOrg IS NULL)",
+        new { id, fiId, fiOrg });
 
     public void UpdateSettings(long id, string displayName, string? qbAccountName, bool invertSign) => Exec(
         "UPDATE BankAccount SET DisplayName = @displayName, QbAccountName = @qbAccountName, InvertSign = @inv WHERE Id = @id",

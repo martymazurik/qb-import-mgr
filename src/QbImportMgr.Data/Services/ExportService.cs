@@ -6,9 +6,17 @@ using QbImportMgr.Data.Db;
 
 namespace QbImportMgr.Data.Services;
 
-public sealed record ExportPreview(IReadOnlyList<ExportItem> Items, ValidationResult Validation)
+public sealed record AccountExportSummary(string AccountDisplay, string? QbAccount, int Count, long NetCents);
+
+public sealed record ExportPreview(IReadOnlyList<ExportItem> Items, ValidationResult Validation, bool IsFirstExport)
 {
     public long TotalCents => Items.Sum(i => i.SignedAmountCents);
+
+    public IReadOnlyList<AccountExportSummary> ByAccount => Items
+        .GroupBy(i => (i.AccountDisplay, i.BankQbAccount))
+        .Select(g => new AccountExportSummary(g.Key.AccountDisplay, g.Key.BankQbAccount, g.Count(), g.Sum(i => i.SignedAmountCents)))
+        .OrderBy(a => a.AccountDisplay)
+        .ToList();
 }
 
 public sealed record ExportResult(ExportBatch Batch, string IifPath, string BackupPath);
@@ -63,7 +71,8 @@ public sealed class ExportService(Database db, AppPaths paths, BackupService bac
             .ToDictionary(g => g.Key, g => g.Any(c => c.IsActive), StringComparer.OrdinalIgnoreCase);
         var qbNames = names.Where(n => n.IsActive).Select(n => n.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return new ExportPreview(items, ExportValidator.Validate(items, qbAccounts, qbNames));
+        bool firstExport = s.Batches.GetAll().Count == 0;
+        return new ExportPreview(items, ExportValidator.Validate(items, qbAccounts, qbNames), firstExport);
     }
 
     /// <summary>

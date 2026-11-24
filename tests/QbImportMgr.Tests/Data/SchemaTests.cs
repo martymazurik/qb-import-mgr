@@ -10,8 +10,8 @@ public class SchemaTests : DataTestBase
     [Fact]
     public void Migrate_is_idempotent_and_seeds_settings()
     {
-        Assert.Equal(1, Db.Migrate());
-        Assert.Equal(1, Db.Migrate());
+        Assert.Equal(2, Db.Migrate());
+        Assert.Equal(2, Db.Migrate());
         using var s = Db.Open();
         Assert.True(s.Settings.GetIifClear());
         s.Settings.SetIifClear(false);

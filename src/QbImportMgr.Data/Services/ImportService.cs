@@ -77,7 +77,7 @@ public sealed class ImportService(Database db, AppPaths paths, TimeProvider cloc
             var engine = new RuleEngine(s.Rules.GetAll());
             var aliases = s.Aliases.GetAll();
             var hits = new Dictionary<long, int>();
-            var result = doc.Statements.Select(st => ImportStatement(s, file.Id, st, engine, aliases, hits, now)).ToList();
+            var result = doc.Statements.Select(st => ImportStatement(s, file.Id, doc, st, engine, aliases, hits, now)).ToList();
 
             s.Rules.AddHits(hits, now);
             s.Audit.Write("QboFile", file.Id, "Imported", new
@@ -91,7 +91,7 @@ public sealed class ImportService(Database db, AppPaths paths, TimeProvider cloc
         return new(fileName, FileImportStatus.Imported, summaries, doc.Warnings, null, Archive(path));
     }
 
-    private static StatementImportSummary ImportStatement(DbSession s, long fileId, OfxStatement st, RuleEngine engine,
+    private static StatementImportSummary ImportStatement(DbSession s, long fileId, OfxDocument doc, OfxStatement st, RuleEngine engine,
         IReadOnlyList<PayeeAlias> aliases, Dictionary<long, int> hits, DateTime now)
     {
         var hash = AccountIdentity.Hash(st.Kind, st.BankId, st.AcctId);
@@ -107,9 +107,15 @@ public sealed class ImportService(Database db, AppPaths paths, TimeProvider cloc
                 Kind = st.Kind,
                 DisplayName = DefaultDisplayName(st),
                 CreatedUtc = now,
+                FiId = doc.FiId,
+                FiOrg = doc.FiOrg,
             };
             s.Accounts.Insert(account);
             s.Audit.Write("BankAccount", account.Id, "Created", new { account.DisplayName, account.OfxAcctIdMasked, Kind = account.Kind.ToCode() }, now);
+        }
+        else if (account.FiId is null || account.FiOrg is null)
+        {
+            s.Accounts.FillInstitution(account.Id, doc.FiId, doc.FiOrg);
         }
 
         var statement = new QboStatement
