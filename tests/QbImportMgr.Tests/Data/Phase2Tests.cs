@@ -107,7 +107,7 @@ public class Schema3UpgradeTests : DataTestBase
 
         var db = new Database(path);
         Assert.True(db.NeedsUpgrade());
-        Assert.Equal(3, db.Migrate());
+        Assert.Equal(Migrator.LatestVersion, db.Migrate());
         Assert.False(db.NeedsUpgrade());
         Assert.False(new Database(Path.Combine(Paths.Root, "missing.db")).NeedsUpgrade());
 

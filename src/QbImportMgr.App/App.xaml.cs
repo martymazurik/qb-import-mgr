@@ -46,6 +46,14 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
         vm.Start();
+        try
+        {
+            vm.ReportIifFiling(services.Export.FileIifFolder());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            vm.StatusMessage += $"  IIF folder housekeeping skipped: {ex.Message}";
+        }
     }
 
     private static void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

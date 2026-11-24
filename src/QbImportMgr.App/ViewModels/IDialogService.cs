@@ -7,6 +7,9 @@ public interface IDialogService
     void Info(string message, string title = "qb-import-mgr");
     void Error(string message, string title = "qb-import-mgr");
     bool Confirm(string message, string title = "qb-import-mgr");
+
+    /// <summary>Two-button question with custom button text; true for the first button.</summary>
+    bool Ask(string message, string title, string yesText, string noText);
     string? OpenFile(string title, string filter);
     void ShowText(string title, string text);
     bool ShowAccountMapping(AccountMappingViewModel vm);

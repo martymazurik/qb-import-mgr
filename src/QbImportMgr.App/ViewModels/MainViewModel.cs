@@ -750,6 +750,30 @@ public sealed partial class MainViewModel : ObservableObject
         ClearUndo(); // snapshots of exported rows can no longer be restored
         RebuildTree();
         StatusMessage = $"Exported {vm.Result.Batch.TxnCount} transactions to {vm.Result.IifPath}.";
+
+        var batchId = vm.Result.Batch.Id;
+        if (!_dialogs.Ask(
+                $"Imported into QuickBooks?\n\nBatch {batchId}: {Path.GetFileName(vm.Result.IifPath)}\n\n" +
+                "In QuickBooks: File > Utilities > Import > IIF Files. Choose Yes once it imported without errors; " +
+                @"the file then moves to iif\imported\. Choose Not yet to leave it in the iif folder and mark it later from Export history.",
+                "Imported into QuickBooks?", "Yes", "Not yet"))
+            return;
+        try
+        {
+            var b = _svc.Export.MarkImported(batchId);
+            StatusMessage = $"Batch {batchId} marked imported to QuickBooks; file filed at {b.IifPath}.";
+        }
+        catch (Exception ex) when (IsUserError(ex) || ex is UnauthorizedAccessException)
+        {
+            _dialogs.Error(ex.Message);
+        }
+    }
+
+    /// <summary>Shown after Start when the startup IIF housekeeping moved or skipped files.</summary>
+    public void ReportIifFiling(IifFilingReport r)
+    {
+        if (r.Moved > 0) StatusMessage += $"  Filed {r.Moved} IIF file(s) into iif\\imported / iif\\voided.";
+        if (r.Skipped.Count > 0) StatusMessage += $"  {r.Skipped.Count} IIF file(s) in use, not moved: {string.Join("; ", r.Skipped.Take(3))}";
     }
 
     [RelayCommand]

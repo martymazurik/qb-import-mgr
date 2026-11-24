@@ -21,7 +21,7 @@
                   ToolTip="Reports > Custom Reports > Transaction Detail: Type, Date, Num, Name, Memo, Account, Clr, Split, Debit, Credit; save as CSV" />
         <Separator />
         <MenuItem Header="_Export Ready to IIF..." InputGestureText="Ctrl+E" Command="{Binding ExportCommand}" />
-        <MenuItem Header="Export _batches / void..." Command="{Binding ShowBatchesCommand}" />
+        <MenuItem Header="Export _history (mark imported / void)..." Command="{Binding ShowBatchesCommand}" />
         <Separator />
         <MenuItem Header="Open _data folder" Command="{Binding OpenDataFolderCommand}" />
         <MenuItem Header="E_xit" Click="Exit_Click" />
@@ -260,7 +260,7 @@
 
             <Border Margin="0,8,0,0" Padding="8" Background="#FDECEC" CornerRadius="4"
                     Visibility="{Binding IsLocked, Converter={StaticResource BoolToVis}}">
-              <TextBlock Text="Exported: locked. Void its batch (File > Export batches) to edit." TextWrapping="Wrap" />
+              <TextBlock Text="Exported: locked. Void its batch (File > Export history) to edit." TextWrapping="Wrap" />
             </Border>
 
             <Border Margin="0,8,0,0" Padding="8" Background="{StaticResource DupBrush}" BorderBrush="#E8C27A" BorderThickness="1" CornerRadius="4"

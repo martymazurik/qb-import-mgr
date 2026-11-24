@@ -10,8 +10,8 @@ public class SchemaTests : DataTestBase
     [Fact]
     public void Migrate_is_idempotent_and_seeds_settings()
     {
-        Assert.Equal(3, Db.Migrate());
-        Assert.Equal(3, Db.Migrate());
+        Assert.Equal(4, Db.Migrate());
+        Assert.Equal(4, Db.Migrate());
         using var s = Db.Open();
         Assert.True(s.Settings.GetIifClear());
         s.Settings.SetIifClear(false);
@@ -115,7 +115,7 @@ public class SchemaTests : DataTestBase
     {
         var (id, batchId) = ExportOne();
         using var s = Db.Open();
-        s.Connection.Execute("UPDATE ExportBatch SET VoidedUtc = '2026-11-20T00:00:00.000Z' WHERE Id = @batchId", new { batchId });
+        s.Connection.Execute("UPDATE ExportBatch SET Status = 'Voided', VoidedUtc = '2026-11-20T00:00:00.000Z' WHERE Id = @batchId", new { batchId });
 
         // Even after the void, other changes in the same update are refused.
         Assert.Throws<SqliteException>(() => s.Connection.Execute("UPDATE Txn SET Status = 'Ready', BatchId = NULL, CategoryId = NULL WHERE Id = @id", new { id }));

@@ -145,8 +145,11 @@ public class ExportServiceTests : DataTestBase
         Assert.Equal(3, Export.VoidBatch(first.Batch.Id));
         Assert.All(ids, id => Assert.Equal((TxnStatus.Ready, (long?)null), (Get(id).Status, Get(id).BatchId)));
         Assert.False(File.Exists(first.IifPath));
-        Assert.True(File.Exists(first.IifPath + ".voided"));
-        Assert.NotNull(Export.Batches().Single().VoidedUtc);
+        var voided = Path.Combine(Paths.IifVoided, "2026-11", Path.GetFileName(first.IifPath) + ".voided");
+        Assert.True(File.Exists(voided));
+        var batch = Export.Batches().Single();
+        Assert.Equal((BatchStatus.Voided, voided), (batch.Status, batch.IifPath));
+        Assert.NotNull(batch.VoidedUtc);
         Assert.Throws<TxnStateException>(() => Export.VoidBatch(first.Batch.Id));
 
         using (var s = Db.Open())

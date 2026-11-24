@@ -267,8 +267,17 @@ public sealed record BatchRow(ExportBatch Batch)
     public int Count => Batch.TxnCount;
     public string Total => Money.FormatDisplay(Batch.TotalCents);
     public string File => Path.GetFileName(Batch.IifPath);
-    public string State => Batch.VoidedUtc is { } v ? $"Voided {v.ToLocalTime():MM/dd/yyyy}" : "Exported";
-    public bool IsVoided => Batch.VoidedUtc is not null;
+    public string Folder => Path.GetDirectoryName(Batch.IifPath) ?? "";
+
+    public string State => Batch.Status switch
+    {
+        BatchStatus.Voided => $"Voided {Batch.VoidedUtc?.ToLocalTime():MM/dd/yyyy}",
+        BatchStatus.ImportedToQb => $"Imported to QB {Batch.ImportedUtc?.ToLocalTime():MM/dd/yyyy}",
+        _ => "Waiting for QB import",
+    };
+
+    public bool IsVoided => Batch.Status == BatchStatus.Voided;
+    public bool IsWaiting => Batch.Status == BatchStatus.Exported;
 }
 
 public sealed partial class BatchesViewModel : ObservableObject
@@ -288,7 +297,30 @@ public sealed partial class BatchesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(VoidCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MarkImportedCommand))]
     private BatchRow? _selected;
+
+    [RelayCommand(CanExecute = nameof(CanMarkImported))]
+    private void MarkImported()
+    {
+        if (Selected is not { } b) return;
+        if (!_dialogs.Confirm(
+                $"Mark batch {b.Id} ({b.Count} transactions, {b.Total}) as imported into QuickBooks?\n\n" +
+                @"Its IIF file moves to iif\imported\, so the iif folder only shows exports still waiting.",
+                "Mark imported to QB"))
+            return;
+        try
+        {
+            _svc.Export.MarkImported(b.Id);
+            Reload();
+        }
+        catch (Exception ex) when (MainViewModel.IsUserError(ex) || ex is IOException or UnauthorizedAccessException)
+        {
+            _dialogs.Error(ex.Message);
+        }
+    }
+
+    private bool CanMarkImported() => Selected is { IsWaiting: true };
 
     private void Reload()
     {
@@ -303,7 +335,7 @@ public sealed partial class BatchesViewModel : ObservableObject
         if (!_dialogs.Confirm(
                 $"Void batch {b.Id} ({b.Count} transactions, {b.Total})?\n\n" +
                 "This does NOT change QuickBooks. Delete those transactions in QuickBooks first, " +
-                "otherwise re-exporting will post them twice.\n\nThe rows return to Ready and the IIF file is renamed *.voided.",
+                "otherwise re-exporting will post them twice.\n\nThe rows return to Ready and the IIF file moves to iif\\voided\\ as *.voided.",
                 "Void export batch"))
             return;
         try
@@ -313,7 +345,7 @@ public sealed partial class BatchesViewModel : ObservableObject
             Reload();
             _dialogs.Info($"Batch {b.Id} voided; {n} transactions are Ready again.");
         }
-        catch (Exception ex) when (MainViewModel.IsUserError(ex))
+        catch (Exception ex) when (MainViewModel.IsUserError(ex) || ex is IOException or UnauthorizedAccessException)
         {
             _dialogs.Error(ex.Message);
         }

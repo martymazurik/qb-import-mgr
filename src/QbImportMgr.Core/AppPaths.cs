@@ -40,6 +40,8 @@ public sealed class AppPaths
         Inbox = Path.Combine(root, "qbo");
         Archive = Path.Combine(Inbox, "archive");
         Iif = Path.Combine(root, "iif");
+        IifImported = Path.Combine(Iif, "imported");
+        IifVoided = Path.Combine(Iif, "voided");
         Backup = Path.Combine(root, "backup");
         Database = Path.Combine(root, "qb-import-mgr.db");
     }
@@ -47,13 +49,21 @@ public sealed class AppPaths
     public string Root { get; }
     public string Inbox { get; }
     public string Archive { get; }
+    /// <summary>Exports waiting for QuickBooks stay in the root of this folder.</summary>
     public string Iif { get; }
+
+    /// <summary>Batches imported into QuickBooks, plus QuickBooks error and *_fixed files, by month.</summary>
+    public string IifImported { get; }
+
+    /// <summary>Voided batches, by month.</summary>
+    public string IifVoided { get; }
+
     public string Backup { get; }
     public string Database { get; }
 
     public void EnsureCreated()
     {
-        foreach (var d in new[] { Root, Inbox, Archive, Iif, Backup })
+        foreach (var d in new[] { Root, Inbox, Archive, Iif, IifImported, IifVoided, Backup })
             Directory.CreateDirectory(d);
     }
 }

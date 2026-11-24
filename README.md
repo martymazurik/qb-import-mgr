@@ -62,7 +62,9 @@ Everything lives under one data folder, `C:\accounting` by default:
 | `qb-import-mgr.db` | The database (SQLite). Back this up with the rest of your books. |
 | `qbo\` | **Inbox**: drop bank/card downloads here |
 | `qbo\archive\` | Downloads are moved here after import (timestamped) |
-| `iif\` | IIF files written by Export |
+| `iif\` | IIF files written by Export and still waiting for QuickBooks |
+| `iif\imported\YYYY-MM\` | Imported batches and QuickBooks error / `*_fixed.iif` files |
+| `iif\voided\YYYY-MM\` | Voided batches |
 | `backup\` | Automatic database backups (newest 30 kept) |
 
 To use a different folder, in order of precedence:
@@ -90,6 +92,7 @@ The window title always shows which data folder is in use.
 4. Check **Possible duplicates**, **Ambiguous match** and **Waiting for Receive Payments**.
 5. Click **Export** (Ctrl+E), review the per-account totals, and export.
 6. In QuickBooks: File > Utilities > Import > IIF Files, and pick the new file from `C:\accounting\iif`.
+7. Back in qb-import-mgr, answer **Yes** to *Imported into QuickBooks?* (or mark it later under File > Export history) so the file is filed away.
 
 ## Working in the main window
 
@@ -263,17 +266,30 @@ Held deposits are never exported. Changing the name, or unticking Invoiced, rele
    - One IIF file is written to `iif\qb-import_<date>_<time>_batch<N>.iif`.
    - The rows become **Exported** and locked. All of this happens together or not at all.
 3. **In QuickBooks:** File > Utilities > Import > IIF Files, then choose the file. Check a few transactions in the register.
+4. **Mark it imported.** Right after the export the app asks *Imported into QuickBooks? Yes / Not yet*. Choose **Yes** once QuickBooks has imported the file without errors. If you choose **Not yet**, mark it later under File > **Export history** > **Mark imported to QB**. The batch becomes *Imported to QB* and its file moves to `iif\imported\YYYY-MM\`.
 
 By default imported transactions are marked cleared, so they arrive already checked for reconciliation. Turn this off under Settings > *IIF: mark exported transactions cleared*.
 
+### The iif folder
+
+The root of `iif\` only holds exports **waiting to be imported** into QuickBooks. Everything else is filed by the month the batch was exported:
+
+| Folder | What goes there |
+|---|---|
+| `iif\` | Exports not yet marked imported |
+| `iif\imported\YYYY-MM\` | Batches marked imported, plus QuickBooks error files (`*_batch*_<digits>.iif`) and your hand-corrected `*_fixed.iif` files |
+| `iif\voided\YYYY-MM\` | Voided batches (renamed `*.voided`) and error files of voided batches |
+
+Each time the app starts it tidies `iif\`: error files and `*_fixed.iif` files go to the month folder of their batch, or to the file's own month when no batch number is in the name. Every move is recorded in the audit log. Files are never deleted or overwritten; a name clash gets ` (2)` added. A file QuickBooks still has open is skipped and moved next time.
+
 ## Voiding an export
 
-File > **Export batches / void…** lists every batch. **Voiding** a batch:
+File > **Export history** lists every batch with its state (*Waiting for QB import*, *Imported to QB*, *Voided*) and folder. **Voiding** a batch:
 
 - returns its rows to **Ready** so you can fix and re-export them;
-- renames its IIF file to `*.voided` so it can't be imported by mistake.
+- moves its IIF file to `iif\voided\YYYY-MM\` as `*.voided` so it can't be imported by mistake.
 
-Voiding does **not** change QuickBooks. **Delete those transactions in QuickBooks first**, or re-exporting will post them twice. Voids are permanent and audited.
+Voiding does **not** change QuickBooks. **Delete those transactions in QuickBooks first**, or re-exporting will post them twice. A batch already marked imported can still be voided. Voids are permanent and audited.
 
 ## Duplicates
 

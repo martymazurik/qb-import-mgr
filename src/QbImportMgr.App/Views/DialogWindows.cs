@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using Microsoft.Win32;
 using QbImportMgr.App.ViewModels;
 
@@ -47,6 +48,26 @@ public sealed class DialogService(Window owner) : IDialogService
 
     public bool Confirm(string message, string title = "qb-import-mgr") =>
         MessageBox.Show(owner, message, title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+
+    public bool Ask(string message, string title, string yesText, string noText)
+    {
+        var w = new Window
+        {
+            Owner = owner, Title = title, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontSize = 13,
+        };
+        var yes = new Button { Content = yesText, IsDefault = true, MinWidth = 90, Margin = new Thickness(0, 0, 8, 0) };
+        var no = new Button { Content = noText, IsCancel = true, MinWidth = 90 };
+        yes.Click += (_, _) => w.DialogResult = true;
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        buttons.Children.Add(yes);
+        buttons.Children.Add(no);
+        var panel = new StackPanel { Margin = new Thickness(18), MaxWidth = 460 };
+        panel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(buttons);
+        w.Content = panel;
+        return w.ShowDialog() == true;
+    }
 
     public string? OpenFile(string title, string filter)
     {

@@ -22,6 +22,9 @@ public static class TxnStatusExtensions
         s is TxnStatus.Excluded or TxnStatus.Duplicate or TxnStatus.InQb or TxnStatus.Ambiguous or TxnStatus.HoldReceivePayment or TxnStatus.Paired;
 }
 
+/// <summary>Export batch lifecycle. Exported = IIF waiting in the iif folder for QuickBooks.</summary>
+public enum BatchStatus { Exported, ImportedToQb, Voided }
+
 public enum RuleField { Payee, Memo, Any }
 
 public enum MatchKind { Contains, StartsWith, Regex }

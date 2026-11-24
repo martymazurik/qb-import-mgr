@@ -188,6 +188,8 @@ public sealed class ExportBatch
     public int TxnCount { get; set; }
     public long TotalCents { get; set; }
     public DateTime? VoidedUtc { get; set; }
+    public BatchStatus Status { get; set; }
+    public DateTime? ImportedUtc { get; set; }
 }
 
 public sealed class AuditLogEntry

@@ -345,8 +345,15 @@ public sealed class ExportBatchRepository(DbSession s) : RepositoryBase(s)
 
     public void SetIifPath(long id, string path) => Exec("UPDATE ExportBatch SET IifPath = @path WHERE Id = @id", new { id, path });
 
-    public bool SetVoided(long id, DateTime now) =>
-        Exec("UPDATE ExportBatch SET VoidedUtc = @now WHERE Id = @id AND VoidedUtc IS NULL", new { id, now = DbUtil.Utc(now) }) == 1;
+    /// <summary>Exported or ImportedToQb → Voided. False when already voided.</summary>
+    public bool SetVoided(long id, DateTime now, string iifPath) => Exec(
+        "UPDATE ExportBatch SET Status = 'Voided', VoidedUtc = @now, IifPath = @iifPath WHERE Id = @id AND Status <> 'Voided'",
+        new { id, now = DbUtil.Utc(now), iifPath }) == 1;
+
+    /// <summary>Exported → ImportedToQb. False when the batch is not waiting for import.</summary>
+    public bool SetImported(long id, DateTime now, string iifPath) => Exec(
+        "UPDATE ExportBatch SET Status = 'ImportedToQb', ImportedUtc = @now, IifPath = @iifPath WHERE Id = @id AND Status = 'Exported'",
+        new { id, now = DbUtil.Utc(now), iifPath }) == 1;
 }
 
 public sealed class AuditRepository(DbSession s) : RepositoryBase(s)
