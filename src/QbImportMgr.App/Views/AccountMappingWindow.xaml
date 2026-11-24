@@ -1,0 +1,49 @@
+<Window x:Class="QbImportMgr.App.Views.AccountMappingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Title}" Width="760" Height="520" MinHeight="300" FontSize="13"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="14">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+               Text="Pick the QuickBooks account each download goes to. Bank accounts list QuickBooks BANK accounts; credit cards list CCARD accounts. Your choice is remembered." />
+    <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,10,0,0">
+      <Button Content="Save" IsDefault="True" Click="Save_Click" />
+      <Button Content="Skip for now" IsCancel="True" />
+    </WrapPanel>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <ItemsControl ItemsSource="{Binding Rows}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Border Margin="0,0,0,8" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                  <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Account" Style="{StaticResource Label}" />
+                <TextBlock Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" VerticalAlignment="Center">
+                  <Run Text="{Binding KindText, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Masked, Mode=OneWay}" />
+                </TextBlock>
+                <TextBlock Grid.Row="1" Text="Institution" Style="{StaticResource Label}" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Institution}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock Grid.Row="2" Text="Display name" Style="{StaticResource Label}" />
+                <TextBox Grid.Row="2" Grid.Column="1" Margin="0,3" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBlock Grid.Row="3" Text="QuickBooks account" Style="{StaticResource Label}" />
+                <StackPanel Grid.Row="3" Grid.Column="1">
+                  <ComboBox Margin="0,3" ItemsSource="{Binding Options}" SelectedItem="{Binding SelectedQbAccount}" IsTextSearchEnabled="True" />
+                  <TextBlock Text="{Binding OptionsHint}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                             Visibility="{Binding OptionsHint, Converter={StaticResource EmptyToCollapsed}}" />
+                </StackPanel>
+                <CheckBox Grid.Row="4" Grid.Column="1" Margin="0,4,0,0" IsChecked="{Binding InvertSign}"
+                          Content="Invert sign (only if this bank sends money out as positive amounts)" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

@@ -1,0 +1,71 @@
+<Window x:Class="QbImportMgr.App.Views.RuleEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Remember as rule" Width="620" SizeToContent="Height" FontSize="13"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" ResizeMode="NoResize">
+  <StackPanel Margin="14">
+    <TextBlock Text="{Binding Heading}" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" TextTrimming="CharacterEllipsis" />
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+      </Grid.RowDefinitions>
+
+      <TextBlock Grid.Row="0" Text="When" Style="{StaticResource Label}" />
+      <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+        <ComboBox Width="90" ItemsSource="{Binding Fields}" SelectedItem="{Binding Field}" />
+        <ComboBox Width="100" Margin="6,0" ItemsSource="{Binding MatchKinds}" SelectedItem="{Binding MatchKind}" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="1" Text="Pattern" Style="{StaticResource Label}" />
+      <TextBox Grid.Row="1" Grid.Column="1" Margin="0,3" Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}" />
+
+      <TextBlock Grid.Row="2" Text="Direction" Style="{StaticResource Label}" />
+      <ComboBox Grid.Row="2" Grid.Column="1" Margin="0,3" Width="100" HorizontalAlignment="Left" ItemsSource="{Binding Signs}" SelectedItem="{Binding Sign}"
+                ToolTip="In = money in, Out = money out" />
+
+      <TextBlock Grid.Row="3" Text="Amount between" Style="{StaticResource Label}" />
+      <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+        <TextBox Width="90" Text="{Binding MinText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Optional; compared to the absolute amount" />
+        <TextBlock Text="and" Margin="6,0" VerticalAlignment="Center" />
+        <TextBox Width="90" Text="{Binding MaxText, UpdateSourceTrigger=PropertyChanged}" />
+      </StackPanel>
+
+      <CheckBox Grid.Row="4" Grid.Column="1" Margin="0,4" IsChecked="{Binding OnlyThisAccount}" IsEnabled="{Binding HasSingleAccount}">
+        <TextBlock><Run Text="Only for " /><Run Text="{Binding AccountName, Mode=OneWay}" /></TextBlock>
+      </CheckBox>
+
+      <TextBlock Grid.Row="5" Text="Category" Style="{StaticResource Label}" />
+      <ComboBox Grid.Row="5" Grid.Column="1" Margin="0,3" IsEditable="True" IsTextSearchEnabled="True"
+                ItemsSource="{Binding Lookups.Categories}" DisplayMemberPath="FullName" TextSearch.TextPath="FullName"
+                SelectedItem="{Binding Category}" IsEnabled="{Binding AutoExclude, Converter={StaticResource Not}}" />
+
+      <TextBlock Grid.Row="6" Text="QB name / class" Style="{StaticResource Label}" />
+      <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,3" IsEnabled="{Binding AutoExclude, Converter={StaticResource Not}}">
+        <ComboBox Width="230" IsEditable="True" IsTextSearchEnabled="True" ItemsSource="{Binding Lookups.Names}"
+                  DisplayMemberPath="Display" TextSearch.TextPath="Name" SelectedItem="{Binding Name}" />
+        <ComboBox Width="130" Margin="6,0,0,0" IsEditable="True" ItemsSource="{Binding Lookups.Classes}"
+                  Text="{Binding ClassText, UpdateSourceTrigger=PropertyChanged}" />
+      </StackPanel>
+
+      <CheckBox Grid.Row="7" Grid.Column="1" Margin="0,4" IsChecked="{Binding AutoExclude}" Content="Auto-exclude matching rows (e.g. transfers you enter in QB yourself)" />
+
+      <TextBlock Grid.Row="8" Text="Priority" Style="{StaticResource Label}" />
+      <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+        <TextBox Width="60" Text="{Binding Priority, UpdateSourceTrigger=PropertyChanged}" />
+        <TextBlock Text="lower runs first" Margin="6,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+      </StackPanel>
+    </Grid>
+
+    <TextBlock Text="{Binding MatchPreview}" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" />
+    <TextBlock Text="{Binding Error}" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}"
+               Visibility="{Binding Error, Converter={StaticResource EmptyToCollapsed}}" />
+    <WrapPanel HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Save rule" IsDefault="True" Click="Save_Click" />
+      <Button Content="Cancel" IsCancel="True" />
+    </WrapPanel>
+  </StackPanel>
+</Window>

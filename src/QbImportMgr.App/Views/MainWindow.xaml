@@ -1,0 +1,374 @@
+<Window x:Class="QbImportMgr.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:QbImportMgr.App.ViewModels"
+        Title="{Binding Title}" Width="1440" Height="860" MinWidth="900" MinHeight="500"
+        WindowStartupLocation="CenterScreen" FontSize="13"
+        PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing">
+  <Window.InputBindings>
+    <KeyBinding Key="F5" Command="{Binding RefreshCommand}" />
+    <KeyBinding Key="I" Modifiers="Control" Command="{Binding ImportInboxCommand}" />
+    <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportCommand}" />
+  </Window.InputBindings>
+
+  <DockPanel>
+    <Menu DockPanel.Dock="Top" Padding="2">
+      <MenuItem Header="_File">
+        <MenuItem Header="Import _inbox" InputGestureText="Ctrl+I" Command="{Binding ImportInboxCommand}" />
+        <MenuItem Header="Import _file..." Command="{Binding ImportFileCommand}" />
+        <MenuItem Header="Import _QuickBooks lists (IIF)..." Command="{Binding ImportListsCommand}" />
+        <Separator />
+        <MenuItem Header="_Export Ready to IIF..." InputGestureText="Ctrl+E" Command="{Binding ExportCommand}" />
+        <MenuItem Header="Export _batches / void..." Command="{Binding ShowBatchesCommand}" />
+        <Separator />
+        <MenuItem Header="Open _data folder" Command="{Binding OpenDataFolderCommand}" />
+        <MenuItem Header="E_xit" Click="Exit_Click" />
+      </MenuItem>
+      <MenuItem Header="_Edit">
+        <MenuItem Command="{Binding UndoCommand}" InputGestureText="Ctrl+Z">
+          <MenuItem.Header>
+            <TextBlock>
+              <Run Text="_Undo " /><Run Text="{Binding UndoDescription, Mode=OneWay}" Foreground="{StaticResource MutedBrush}" />
+            </TextBlock>
+          </MenuItem.Header>
+        </MenuItem>
+        <Separator />
+        <MenuItem Header="_Approve (Categorized → Ready)" InputGestureText="Enter" Command="{Binding ApproveSelectedCommand}" />
+        <MenuItem Header="E_xclude" InputGestureText="Del" Command="{Binding ExcludeSelectedCommand}" />
+        <MenuItem Header="_Remember as rule..." Command="{Binding RememberRuleCommand}" />
+        <Separator />
+        <MenuItem Header="Re_fresh" InputGestureText="F5" Command="{Binding RefreshCommand}" />
+      </MenuItem>
+      <MenuItem Header="_Settings">
+        <MenuItem Header="_Accounts and QuickBooks mapping..." Command="{Binding EditAccountsCommand}" />
+        <MenuItem Header="IIF: mark exported transactions _cleared (CLEAR=Y)" IsCheckable="True" IsChecked="{Binding IifClear}" />
+      </MenuItem>
+    </Menu>
+
+    <Border DockPanel.Dock="Top" Background="#FFF3CD" Padding="8,3"
+            Visibility="{Binding IsDevDataFolder, Converter={StaticResource BoolToVis}}">
+      <TextBlock Text="{Binding Title, StringFormat='DEV data folder (Debug build): {0}'}" />
+    </Border>
+
+    <ToolBarTray DockPanel.Dock="Top" IsLocked="True">
+      <ToolBar>
+        <Button Command="{Binding ImportInboxCommand}" ToolTip="Import every .qbo/.qfx/.ofx in the inbox (Ctrl+I)">
+          <TextBlock>
+            <Run Text="Import inbox" /><Run Text="{Binding InboxCount, Mode=OneWay, StringFormat=' ({0})'}" />
+          </TextBlock>
+        </Button>
+        <Button Content="Export..." Command="{Binding ExportCommand}" ToolTip="Export Ready rows to IIF (Ctrl+E)" />
+        <Separator />
+        <Button Content="Approve" Command="{Binding ApproveSelectedCommand}" ToolTip="Categorized → Ready (Enter)" />
+        <Button Content="Exclude" Command="{Binding ExcludeSelectedCommand}" ToolTip="Exclude selected (Del)" />
+        <Button Command="{Binding UndoCommand}" ToolTip="{Binding UndoDescription}" Content="Undo" />
+        <Separator />
+        <TextBlock Text="Category for selected:" VerticalAlignment="Center" Margin="4,0" />
+        <ComboBox Width="240" IsEditable="True" IsTextSearchEnabled="True"
+                  ItemsSource="{Binding Lookups.Categories}" DisplayMemberPath="FullName" TextSearch.TextPath="FullName"
+                  SelectedItem="{Binding BulkCategory}" />
+        <Button Content="Set" Command="{Binding ApplyBulkCategoryCommand}" ToolTip="Set this category on all selected rows" />
+        <Separator />
+        <Button Content="Remember as rule..." Command="{Binding RememberRuleCommand}" />
+        <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource MutedBrush}"
+                   Text="{Binding SelectionCount, StringFormat='{}{0} selected'}" />
+      </ToolBar>
+    </ToolBarTray>
+
+    <StatusBar DockPanel.Dock="Bottom" Padding="4,1">
+      <StatusBarItem>
+        <TextBlock Text="{Binding FooterCounts}" />
+      </StatusBarItem>
+      <Separator />
+      <StatusBarItem>
+        <TextBlock Text="{Binding FooterTotals}" />
+      </StatusBarItem>
+      <Separator />
+      <StatusBarItem>
+        <TextBlock Text="{Binding LedgerText}">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding LedgerTies}" Value="True">
+                  <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding LedgerTies}" Value="False">
+                  <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                  <Setter Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </StatusBarItem>
+      <StatusBarItem HorizontalAlignment="Right">
+        <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+      </StatusBarItem>
+    </StatusBar>
+
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition x:Name="LeftCol" Width="270" MinWidth="160" />
+        <ColumnDefinition Width="5" />
+        <ColumnDefinition Width="*" MinWidth="320" />
+        <ColumnDefinition Width="5" />
+        <ColumnDefinition x:Name="RightCol" Width="400" MinWidth="260" />
+      </Grid.ColumnDefinitions>
+
+      <!-- left: accounts, periods, views -->
+      <TreeView x:Name="Tree" Grid.Column="0" ItemsSource="{Binding Tree}" BorderThickness="0"
+                Background="{StaticResource PanelBrush}" SelectedItemChanged="Tree_SelectedItemChanged">
+        <TreeView.ItemContainerStyle>
+          <Style TargetType="TreeViewItem">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+            <Setter Property="Padding" Value="2,1" />
+          </Style>
+        </TreeView.ItemContainerStyle>
+        <TreeView.ItemTemplate>
+          <HierarchicalDataTemplate DataType="{x:Type vm:TreeNodeViewModel}" ItemsSource="{Binding Children}">
+            <StackPanel Margin="0,2">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="Lbl" Text="{Binding Label}" />
+                <Border Margin="6,0,0,0" Padding="5,0" CornerRadius="7" Background="#E4E7EB"
+                        Visibility="{Binding Badge, Converter={StaticResource EmptyToCollapsed}}">
+                  <TextBlock Text="{Binding Badge}" FontSize="11" />
+                </Border>
+              </StackPanel>
+              <TextBlock x:Name="Sub" Text="{Binding Subtitle}" FontSize="11" Foreground="{StaticResource MutedBrush}"
+                         Visibility="{Binding Subtitle, Converter={StaticResource EmptyToCollapsed}}" />
+            </StackPanel>
+            <HierarchicalDataTemplate.Triggers>
+              <DataTrigger Binding="{Binding Kind}" Value="Header">
+                <Setter TargetName="Lbl" Property="FontWeight" Value="SemiBold" />
+                <Setter TargetName="Lbl" Property="Foreground" Value="{StaticResource MutedBrush}" />
+              </DataTrigger>
+              <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                  <Condition Binding="{Binding NeedsAttention}" Value="True" />
+                  <Condition Binding="{Binding IsSelected}" Value="False" />
+                </MultiDataTrigger.Conditions>
+                <Setter TargetName="Lbl" Property="Foreground" Value="{StaticResource WarnBrush}" />
+                <Setter TargetName="Sub" Property="Foreground" Value="{StaticResource WarnBrush}" />
+              </MultiDataTrigger>
+              <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter TargetName="Sub" Property="Foreground" Value="{x:Static SystemColors.HighlightTextBrush}" />
+              </DataTrigger>
+            </HierarchicalDataTemplate.Triggers>
+          </HierarchicalDataTemplate>
+        </TreeView.ItemTemplate>
+      </TreeView>
+
+      <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" Background="{StaticResource BorderBrush}" />
+
+      <!-- center: transactions -->
+      <DockPanel Grid.Column="2">
+        <TextBlock DockPanel.Dock="Top" Text="{Binding ViewTitle}" FontSize="15" FontWeight="SemiBold" Margin="8,6" TextTrimming="CharacterEllipsis" />
+        <DataGrid x:Name="TxnGrid" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                  SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEF0F2" BorderThickness="0" RowHeight="24"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                  SelectionChanged="TxnGrid_SelectionChanged" PreviewKeyDown="TxnGrid_PreviewKeyDown"
+                  PreviewTextInput="TxnGrid_PreviewTextInput" BeginningEdit="TxnGrid_BeginningEdit"
+                  PreparingCellForEdit="TxnGrid_PreparingCellForEdit" CellEditEnding="TxnGrid_CellEditEnding">
+          <DataGrid.RowStyle>
+            <Style TargetType="DataGridRow">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Duplicate">
+                  <Setter Property="Background" Value="{StaticResource DupBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Ready">
+                  <Setter Property="Background" Value="#EEF7EF" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Excluded">
+                  <Setter Property="Foreground" Value="#9A9A9A" />
+                  <Setter Property="FontStyle" Value="Italic" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Exported">
+                  <Setter Property="Foreground" Value="#7A7A7A" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </DataGrid.RowStyle>
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Date" Width="88" IsReadOnly="True" Binding="{Binding Date, Mode=OneWay, StringFormat=MM/dd/yyyy}" />
+            <DataGridTextColumn x:Name="PayeeColumn" Header="Payee" Width="*" MinWidth="140" Binding="{Binding Payee, UpdateSourceTrigger=LostFocus}" />
+            <DataGridTemplateColumn x:Name="CategoryColumn" Header="Category" Width="210" SortMemberPath="CategoryText">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding CategoryText}" Padding="2,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+              <DataGridTemplateColumn.CellEditingTemplate>
+                <DataTemplate>
+                  <ComboBox IsEditable="True" IsTextSearchEnabled="True" StaysOpenOnEdit="True"
+                            ItemsSource="{Binding DataContext.Lookups.Categories, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                            DisplayMemberPath="FullName" TextSearch.TextPath="FullName" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellEditingTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Amount" Width="95" IsReadOnly="True" Binding="{Binding Amount, Mode=OneWay, StringFormat=N2}">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock">
+                  <Setter Property="HorizontalAlignment" Value="Right" />
+                  <Setter Property="Margin" Value="0,0,6,0" />
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
+            <DataGridTextColumn Header="Status" Width="115" IsReadOnly="True" Binding="{Binding StatusText, Mode=OneWay}" />
+            <DataGridTextColumn Header="Account" Width="125" IsReadOnly="True" Binding="{Binding Account, Mode=OneWay}" />
+            <DataGridTextColumn Header="Memo" Width="160" IsReadOnly="True" Binding="{Binding Memo, Mode=OneWay}" />
+          </DataGrid.Columns>
+        </DataGrid>
+      </DockPanel>
+
+      <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" Background="{StaticResource BorderBrush}" />
+
+      <!-- right: detail -->
+      <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto" Background="{StaticResource PanelBrush}" DataContext="{Binding Detail}">
+        <Grid Margin="12,8">
+          <TextBlock Text="Select a transaction." Foreground="{StaticResource MutedBrush}"
+                     Visibility="{Binding HasRow, Converter={StaticResource NotToVis}}" />
+          <StackPanel Visibility="{Binding HasRow, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="{Binding PayeeText}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding SignedAmount}" FontSize="16" />
+            <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedBrush}" />
+            <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap">
+              <Run Text="{Binding AccountText, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding SourceFile, Mode=OneWay}" />
+            </TextBlock>
+
+            <Border Margin="0,8,0,0" Padding="8" Background="#FDECEC" CornerRadius="4"
+                    Visibility="{Binding IsLocked, Converter={StaticResource BoolToVis}}">
+              <TextBlock Text="Exported: locked. Void its batch (File > Export batches) to edit." TextWrapping="Wrap" />
+            </Border>
+
+            <Border Margin="0,8,0,0" Padding="8" Background="{StaticResource DupBrush}" BorderBrush="#E8C27A" BorderThickness="1" CornerRadius="4"
+                    Visibility="{Binding IsDuplicate, Converter={StaticResource BoolToVis}}">
+              <StackPanel>
+                <TextBlock Text="Possible duplicate" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding DuplicateInfo}" TextWrapping="Wrap" Margin="0,2,0,6" />
+                <WrapPanel>
+                  <Button Content="Not a duplicate" Command="{Binding NotADuplicateCommand}" ToolTip="Back to New; rules re-run" />
+                  <Button Content="Confirm duplicate" Command="{Binding ConfirmDuplicateCommand}" ToolTip="Move to Excluded" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <WrapPanel Margin="0,10,0,0">
+              <Button Content="Approve" Command="{Binding ApproveCommand}" ToolTip="Categorized → Ready (blocked until splits balance)" />
+              <Button Content="Unapprove" Command="{Binding UnapproveCommand}" />
+              <Button Content="Exclude" Command="{Binding ExcludeCommand}" />
+              <Button Content="Include" Command="{Binding IncludeCommand}" />
+              <Button Content="Remember as rule..." Command="{Binding RememberRuleCommand}" />
+            </WrapPanel>
+
+            <TextBlock Text="Edit" Style="{StaticResource SectionHeader}" />
+            <Grid IsEnabled="{Binding IsLocked, Converter={StaticResource Not}}">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+              </Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Text="Date" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2" Text="{Binding DateText, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Grid.Row="1" Text="Payee" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2" Text="{Binding PayeeText, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Grid.Row="2" Text="Memo" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding MemoText, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Grid.Row="3" Text="Check #" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="3" Grid.Column="1" Margin="0,2" Text="{Binding CheckNumText, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Grid.Row="4" Text="QB name" Style="{StaticResource Label}" />
+              <ComboBox Grid.Row="4" Grid.Column="1" Margin="0,2" IsEditable="True" IsTextSearchEnabled="True"
+                        ItemsSource="{Binding Lookups.Names}" DisplayMemberPath="Display" TextSearch.TextPath="Name"
+                        SelectedItem="{Binding SelectedName}" />
+              <TextBlock Grid.Row="5" Text="Class" Style="{StaticResource Label}" />
+              <ComboBox Grid.Row="5" Grid.Column="1" Margin="0,2" IsEditable="True" IsTextSearchEnabled="True"
+                        ItemsSource="{Binding Lookups.Classes}" Text="{Binding ClassText, UpdateSourceTrigger=PropertyChanged}" />
+              <WrapPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,6,0,0">
+                <Button Content="Save" Command="{Binding SaveEditsCommand}" IsDefault="False" />
+                <Button Content="Revert" Command="{Binding RevertEditsCommand}" />
+              </WrapPanel>
+            </Grid>
+
+            <TextBlock Text="Splits" Style="{StaticResource SectionHeader}" />
+            <StackPanel IsEnabled="{Binding IsLocked, Converter={StaticResource Not}}">
+              <ItemsControl x:Name="SplitList" ItemsSource="{Binding Splits}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="{x:Type vm:SplitLineViewModel}">
+                    <Grid Margin="0,2">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <ComboBox Grid.Column="0" IsEditable="True" IsTextSearchEnabled="True"
+                                ItemsSource="{Binding DataContext.Lookups.Categories, ElementName=SplitList}"
+                                DisplayMemberPath="FullName" TextSearch.TextPath="FullName" SelectedItem="{Binding Category}" />
+                      <TextBox Grid.Column="1" Margin="4,0" TextAlignment="Right" Text="{Binding AmountText, UpdateSourceTrigger=PropertyChanged}" />
+                      <TextBox Grid.Column="2" Text="{Binding Memo, UpdateSourceTrigger=PropertyChanged}" ToolTip="Line memo (optional)" />
+                      <Button Grid.Column="3" Content="✕" MinWidth="0" Padding="6,0" Margin="4,0,0,0" ToolTip="Remove line"
+                              Command="{Binding DataContext.RemoveSplitCommand, ElementName=SplitList}" CommandParameter="{Binding}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="{Binding RemainderText}" Margin="0,4">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsBalanced}" Value="False">
+                        <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <TextBlock Text="Amounts are in the direction of the transaction; a negative line runs against it."
+                         FontSize="11" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                         Visibility="{Binding RemainderText, Converter={StaticResource EmptyToCollapsed}}" />
+              <WrapPanel Margin="0,4,0,0">
+                <Button Content="Add line" Command="{Binding AddSplitCommand}" />
+                <Button Content="Save splits" Command="{Binding SaveSplitsCommand}" />
+                <Button Content="Remove splits" Command="{Binding ClearSplitsCommand}" />
+              </WrapPanel>
+            </StackPanel>
+
+            <TextBlock Text="Bank values (as downloaded)" Style="{StaticResource SectionHeader}" />
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+              </Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Text="NAME" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="0" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawName, Mode=OneWay}" />
+              <TextBlock Grid.Row="1" Text="MEMO" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawMemo, Mode=OneWay}" />
+              <TextBlock Grid.Row="2" Text="TRNAMT" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="2" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawAmount, Mode=OneWay}" />
+              <TextBlock Grid.Row="3" Text="TRNTYPE" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="3" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawType, Mode=OneWay}" />
+              <TextBlock Grid.Row="4" Text="DTPOSTED" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="4" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawPosted, Mode=OneWay}" />
+              <TextBlock Grid.Row="5" Text="DTUSER" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="5" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawUser, Mode=OneWay}" />
+              <TextBlock Grid.Row="6" Text="CHECKNUM" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="6" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawCheckNum, Mode=OneWay}" />
+              <TextBlock Grid.Row="7" Text="FITID" Style="{StaticResource Label}" />
+              <TextBox Grid.Row="7" Grid.Column="1" Style="{StaticResource Value}" Text="{Binding RawFitId, Mode=OneWay}" />
+            </Grid>
+          </StackPanel>
+        </Grid>
+      </ScrollViewer>
+    </Grid>
+  </DockPanel>
+</Window>

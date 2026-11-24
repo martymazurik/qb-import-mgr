@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>qb-import-mgr</AssemblyName>
+    <RootNamespace>QbImportMgr.App</RootNamespace>
+    <Product>qb-import-mgr</Product>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\QbImportMgr.Core\QbImportMgr.Core.csproj" />
+    <ProjectReference Include="..\QbImportMgr.Data\QbImportMgr.Data.csproj" />
+  </ItemGroup>
+</Project>

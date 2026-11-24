@@ -1,0 +1,26 @@
+<Window x:Class="QbImportMgr.App.Views.BatchesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Export batches" Width="820" Height="440" FontSize="13"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="14">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{StaticResource MutedBrush}"
+               Text="Voiding returns a batch's rows to Ready so they can be fixed and exported again. It does not change QuickBooks: delete those transactions there first." />
+    <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,10,0,0">
+      <Button Content="Void selected batch..." Command="{Binding VoidCommand}" />
+      <Button Content="Open IIF folder" Command="{Binding OpenIifFolderCommand}" />
+      <Button Content="Close" IsCancel="True" />
+    </WrapPanel>
+    <DataGrid ItemsSource="{Binding Batches}" SelectedItem="{Binding Selected}" AutoGenerateColumns="False" IsReadOnly="True"
+              SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEF0F2">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Batch" Binding="{Binding Id}" Width="60" />
+        <DataGridTextColumn Header="Created" Binding="{Binding Created}" Width="130" />
+        <DataGridTextColumn Header="Rows" Binding="{Binding Count}" Width="60" />
+        <DataGridTextColumn Header="Net" Binding="{Binding Total}" Width="110" />
+        <DataGridTextColumn Header="State" Binding="{Binding State}" Width="130" />
+        <DataGridTextColumn Header="File" Binding="{Binding File}" Width="*" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</Window>
